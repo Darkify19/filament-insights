@@ -35,7 +35,7 @@ abstract class InsightsPage extends Page
 
     public function getTitle(): string
     {
-        return Str::ucfirst(static::getResource()::getModelLabel()).' insights';
+        return static::$title ?? Str::ucfirst(static::getResource()::getModelLabel()).' insights';
     }
 
     /**
