@@ -5,7 +5,8 @@ each dashboard reads from the resource's own list-page table query, so a chart c
 the records its viewer could see in that table (`getEloquentQuery()` and `modifyQueryUsing()`
 scopes both apply).
 
-Works on **Filament 3.2+ and 5.x** from one codebase.
+Works on **Filament 3, 4 and 5** from one codebase: 3.3.53+, 4.13.2+ and 5.8.2+, the first
+releases of each line without a known security advisory.
 
 ## Install
 

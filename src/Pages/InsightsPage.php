@@ -76,7 +76,7 @@ abstract class InsightsPage extends Page
     }
 
     /**
-     * Shares one blade view across Filament v3 and v5 (v3 declares `$view` static, v5 doesn't).
+     * Shares one blade view across Filament v3–v5 (v3 declares `$view` static, v4 and v5 don't).
      */
     public function getView(): string
     {

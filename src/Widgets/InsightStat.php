@@ -17,7 +17,7 @@ class InsightStat extends StatsOverviewWidget
     #[Locked]
     public string $resource = '';
 
-    // Overridden as methods, not properties: v3 declares these differently from v5.
+    // Overridden as methods, not properties: v3 declares these differently from v4 and v5.
     protected function getPollingInterval(): ?string
     {
         return null;

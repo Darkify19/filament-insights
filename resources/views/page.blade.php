@@ -67,7 +67,7 @@
 
         {{--
             Plain CSS grid: plugin markup can't rely on the host compiling Tailwind classes.
-            Managers rearrange it with Filament's own x-sortable (SortableJS, shipped on v3 and v5):
+            Managers rearrange it with Filament's own x-sortable (SortableJS, shipped on v3–v5):
             mouse drags at once, touch after a press-and-hold so the page still scrolls, and
             Alt + arrow keys move the focused widget one place.
         --}}

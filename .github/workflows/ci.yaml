@@ -11,8 +11,10 @@ jobs:
     name: Tests (Filament ${{ matrix.filament }})
     runs-on: ubuntu-latest
 
-    # One codebase for every supported Filament line. Filament 3 and 4 run on Livewire 3,
-    # Filament 5 on Livewire 4, so each row pins its own pair.
+    # One codebase for every supported Filament line: the floor and the newest of each.
+    # The floors are the first releases without a security advisory, and Composer refuses
+    # anything older by default. Filament 3 and 4 run on Livewire 3, Filament 5 on
+    # Livewire 4, so each row pins its own pair. Filament 3 ends at 3.3, so one row covers it.
     strategy:
       fail-fast: false
       matrix:
@@ -20,6 +22,15 @@ jobs:
           - filament: '^3.3.53'
             livewire: '^3.5'
             testbench: '^10.0'
+          - filament: '~4.13.2'
+            livewire: '^3.6'
+            testbench: '^10.0'
+          - filament: '^4.13.2'
+            livewire: '^3.6'
+            testbench: '^10.0'
+          - filament: '~5.8.2'
+            livewire: '^4.0'
+            testbench: '^11.0'
           - filament: '^5.8.2'
             livewire: '^4.0'
             testbench: '^11.0'

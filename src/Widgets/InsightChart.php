@@ -28,7 +28,7 @@ class InsightChart extends ChartWidget
         return InsightQuery::describe($this->config);
     }
 
-    // Overridden as methods, not properties: v3 declares these static, v5 doesn't.
+    // Overridden as methods, not properties: v3 declares these static, v4 and v5 don't.
     protected function getPollingInterval(): ?string
     {
         return null;
