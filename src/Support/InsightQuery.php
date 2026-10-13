@@ -147,6 +147,7 @@ class InsightQuery
 
             $rows = $base->selectRaw("{$bucket} as bucket, {$aggregate} as aggregate")
                 ->groupByRaw($bucket)
+                ->orderByRaw($bucket)
                 ->pluck('aggregate', 'bucket');
 
             return $this->timeline($rows, $unit, $from, $until);
@@ -237,8 +238,20 @@ class InsightQuery
         // `!` zeroes the unparsed fields; without it "2026-02" on the 31st overflows into March.
         $parse = fn (string $bucket): CarbonImmutable => CarbonImmutable::createFromFormat("!{$key}", $bucket);
 
-        $from ??= $parse($rows->keys()->min());
-        $until ??= $parse($rows->keys()->max());
+        if ($from === null) {
+            $from = $parse($rows->keys()->min());
+            $until = $parse($rows->keys()->max());
+
+            // ponytail: an all-time series with one stray date (a "year 4" typo) would zero-fill
+            // thousands of buckets; past ~a year of buckets, plot only the ones with data.
+            if ($from->{'diffIn'.ucfirst($unit).'s'}($until) > 366) {
+                return [
+                    $rows->keys()->map(fn (string $bucket): string => $parse($bucket)->format($display))->values()->all(),
+                    $rows->values()->map(fn (mixed $value): float => (float) $value)->all(),
+                ];
+            }
+        }
+
         $labels = $values = [];
 
         foreach (CarbonPeriod::create($from->startOf($unit), "1 {$unit}", $until) as $date) {
