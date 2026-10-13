@@ -9,10 +9,7 @@ Works on **Filament 3.2+ and 5.x** from one codebase.
 
 ## Install
 
-Not on Packagist yet, so point Composer at the repository first:
-
 ```bash
-composer config repositories.filament-insights vcs https://github.com/Darkify19/filament-insights
 composer require carljanzell/filament-insights
 php artisan migrate   # creates insight_dashboards
 ```
