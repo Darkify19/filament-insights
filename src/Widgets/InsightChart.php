@@ -3,6 +3,7 @@
 namespace CarlJanzell\FilamentInsights\Widgets;
 
 use CarlJanzell\FilamentInsights\Support\InsightQuery;
+use Filament\Support\RawJs;
 use Filament\Widgets\ChartWidget;
 use Livewire\Attributes\Locked;
 
@@ -59,11 +60,37 @@ class InsightChart extends ChartWidget
         ];
     }
 
-    protected function getOptions(): array
+    protected function getOptions(): array|RawJs
     {
-        return $this->isRound()
-            ? ['scales' => ['x' => ['display' => false], 'y' => ['display' => false]]]
-            : ['plugins' => ['legend' => ['display' => false]]];
+        $currency = InsightQuery::currencyFor($this->config);
+
+        if ($currency === null) {
+            return $this->isRound()
+                ? ['scales' => ['x' => ['display' => false], 'y' => ['display' => false]]]
+                : ['plugins' => ['legend' => ['display' => false]]];
+        }
+
+        // Money needs formatter callbacks, so these options are JS. The browser's Intl formats them
+        // in the page's language: exact amounts in tooltips, compact ones ("₱10B") on the axis.
+        // Single quotes only: this lands inside a double-quoted x-data attribute.
+        $money = fn (string $notation): string => sprintf(
+            "new Intl.NumberFormat(document.documentElement.lang || undefined, { style: 'currency', currency: '%s', currencyDisplay: 'narrowSymbol', notation: '%s' })",
+            preg_replace('/[^A-Z]/', '', strtoupper($currency)),
+            $notation,
+        );
+
+        return RawJs::make($this->isRound()
+            ? "{
+                scales: { x: { display: false }, y: { display: false } },
+                plugins: { tooltip: { callbacks: { label: (context) => context.label + ': ' + {$money('standard')}.format(context.raw) } } },
+            }"
+            : "{
+                scales: { y: { ticks: { callback: (value) => {$money('compact')}.format(value) } } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: (context) => {$money('standard')}.format(context.raw) } },
+                },
+            }");
     }
 
     protected function isRound(): bool

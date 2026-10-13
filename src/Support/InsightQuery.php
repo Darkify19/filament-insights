@@ -3,6 +3,7 @@
 namespace CarlJanzell\FilamentInsights\Support;
 
 use BackedEnum;
+use CarlJanzell\FilamentInsights\FilamentInsightsPlugin;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonPeriod;
 use Filament\Facades\Filament;
@@ -98,6 +99,14 @@ class InsightQuery
             $config['date_column'] ?? null,
             str_starts_with($group, '@') ? null : $group,
         ]));
+    }
+
+    /**
+     * The currency a widget's amounts are shown in, or null for plain numbers.
+     */
+    public static function currencyFor(array $config): ?string
+    {
+        return ($config['format'] ?? null) === 'money' ? FilamentInsightsPlugin::get()->getCurrency() : null;
     }
 
     public static function describe(array $config): string

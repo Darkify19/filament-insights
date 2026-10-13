@@ -24,7 +24,9 @@ $panel->plugin(
         // Who may edit dashboards. Anyone who can open the resource can view them.
         ->canManage(fn (): bool => auth()->user()?->hasRole('super_admin') ?? false)
         // Optional: existing hand-written widgets admins may place as-is.
-        ->widgets([UsageStatsOverviewWidget::class]),
+        ->widgets([UsageStatsOverviewWidget::class])
+        // Optional: lets admins show sums and averages as money (stats, axes, tooltips).
+        ->currency('PHP'),
 );
 ```
 

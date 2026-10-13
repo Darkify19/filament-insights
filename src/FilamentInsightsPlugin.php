@@ -21,6 +21,8 @@ class FilamentInsightsPlugin implements Plugin
 
     protected bool|Closure $canManage = true;
 
+    protected ?string $currency = null;
+
     public static function make(): static
     {
         return app(static::class);
@@ -69,6 +71,21 @@ class FilamentInsightsPlugin implements Plugin
         $this->canManage = $condition;
 
         return $this;
+    }
+
+    /**
+     * ISO 4217 code (e.g. "PHP") that lets admins show an amount as money.
+     */
+    public function currency(?string $code): static
+    {
+        $this->currency = $code;
+
+        return $this;
+    }
+
+    public function getCurrency(): ?string
+    {
+        return $this->currency;
     }
 
     public function isManageable(): bool

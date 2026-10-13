@@ -32,7 +32,8 @@ class InsightStat extends StatsOverviewWidget
     {
         $insights = new InsightQuery($this->resource);
         $value = $insights->value($this->config);
-        $stat = Stat::make($this->config['label'] ?? '', Number::format($value, maxPrecision: 2));
+        $currency = InsightQuery::currencyFor($this->config);
+        $stat = Stat::make($this->config['label'] ?? '', $currency ? Number::currency($value, $currency) : Number::format($value, maxPrecision: 2));
 
         if (InsightQuery::window($this->config)[0] === null) {
             return [$stat->description('All time')];

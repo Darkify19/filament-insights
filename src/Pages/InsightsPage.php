@@ -226,6 +226,8 @@ abstract class InsightsPage extends Page
             ->mapWithKeys(fn (string $widget): array => [$widget => Str::headline(class_basename($widget))])
             ->all();
 
+        $currency = FilamentInsightsPlugin::get()->getCurrency();
+
         $isData = fn ($get): bool => in_array($get('type'), ['stat', 'chart'], true);
         $isChart = fn ($get): bool => $get('type') === 'chart';
         $isTimeline = fn ($get): bool => str_starts_with((string) $get('group_by'), '@');
@@ -268,6 +270,12 @@ abstract class InsightsPage extends Page
                 ->in(array_keys($numeric))
                 ->required()
                 ->visible(fn ($get): bool => $isData($get) && $get('aggregate') !== 'count'),
+            ToggleButtons::make('format')
+                ->label('Show as')
+                ->options(['number' => 'Number', 'money' => "Money ({$currency})"])
+                ->default('number')
+                ->grouped()
+                ->visible(fn ($get): bool => filled($currency) && $isData($get) && $get('aggregate') !== 'count'),
             ToggleButtons::make('chart')
                 ->label('Chart type')
                 ->options(['bar' => 'Bar', 'line' => 'Line', 'pie' => 'Pie', 'doughnut' => 'Doughnut'])
