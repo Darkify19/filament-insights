@@ -1,10 +1,13 @@
 <?php
 
+use CarlJanzell\FilamentInsights\InsightsServiceProvider;
 use CarlJanzell\FilamentInsights\Models\InsightDashboard;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrderInsights;
+use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrderResource;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrdersOverview;
 use CarlJanzell\FilamentInsights\Widgets\InsightChart;
 use CarlJanzell\FilamentInsights\Widgets\InsightStat;
+use Filament\Support\Facades\FilamentAsset;
 use Livewire\Livewire;
 
 afterEach(fn () => OrdersOverview::$shown = true);
@@ -25,6 +28,21 @@ it('renders through the panel, arrangeable only for managers', function (bool $a
         ? $response->assertSee('x-sortable-item', escape: false)
         : $response->assertDontSee('x-sortable-item', escape: false);
 })->with(['manager' => true, 'viewer' => false]);
+
+it('imports its motion scripts on the insights page and nowhere else', function () {
+    signIn();
+    dashboard([statWidget('Orders')]);
+
+    $anime = FilamentAsset::getScriptSrc('anime', InsightsServiceProvider::PACKAGE);
+
+    expect($anime)->toContain('js/carljanzell/filament-insights/anime.js');
+
+    $this->get(OrderInsights::getUrl())->assertOk()
+        ->assertSee($anime, escape: false)
+        ->assertSee(FilamentAsset::getScriptSrc('motion', InsightsServiceProvider::PACKAGE), escape: false);
+
+    $this->get(OrderResource::getUrl('index'))->assertOk()->assertDontSee('filament-insights/anime.js', escape: false);
+});
 
 it('says so when a dashboard has no widgets yet', function () {
     signIn();

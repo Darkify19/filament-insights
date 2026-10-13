@@ -12,7 +12,8 @@ releases of each line without a known security advisory.
 
 ```bash
 composer require carljanzell/filament-insights
-php artisan migrate   # creates insight_dashboards
+php artisan migrate          # creates insight_dashboards
+php artisan filament:assets  # publishes the motion scripts; most apps run this via filament:upgrade
 ```
 
 Register the plugin on a panel:
@@ -56,6 +57,12 @@ AttendanceInsights::linkAction(),
 
 Admins rearrange a dashboard by dragging widgets on the page (press and hold on touch), or by
 focusing one and pressing Alt + arrow keys. The order is saved for everyone who views it.
+
+Widgets rise in one after another, stats count up as they load, a picked-up widget lifts over
+a soft outlined slot, and a dropped one settles with a small spring. The motion runs on a
+bundled [anime.js](https://animejs.com) 4.5 (MIT), imported only on insights pages and never
+when the viewer's system asks for reduced motion. If the scripts aren't published, the
+dashboard works the same without it.
 
 Only real columns are offered. Hidden and encrypted attributes are excluded, and every
 column name is checked against the table schema before it reaches SQL.
