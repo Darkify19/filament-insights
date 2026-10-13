@@ -1,0 +1,6 @@
+# Keep the Composer dist to what a consuming application needs at runtime.
+/.github            export-ignore
+/tests              export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/phpunit.xml        export-ignore

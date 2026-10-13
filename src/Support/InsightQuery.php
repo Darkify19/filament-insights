@@ -3,9 +3,9 @@
 namespace CarlJanzell\FilamentInsights\Support;
 
 use BackedEnum;
-use CarlJanzell\FilamentInsights\FilamentInsightsPlugin;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonPeriod;
+use CarlJanzell\FilamentInsights\FilamentInsightsPlugin;
 use Filament\Facades\Filament;
 use Filament\Resources\Resource;
 use Filament\Support\Contracts\HasLabel;

@@ -26,9 +26,20 @@
         "php": "^8.2",
         "filament/filament": "^3.2|^5.0"
     },
+    "require-dev": {
+        "laravel/pint": "^1.27",
+        "livewire/livewire": "^3.5|^4.0",
+        "orchestra/testbench": "^10.0|^11.0",
+        "pestphp/pest": "^4.0"
+    },
     "autoload": {
         "psr-4": {
             "CarlJanzell\\FilamentInsights\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CarlJanzell\\FilamentInsights\\Tests\\": "tests/"
         }
     },
     "extra": {
@@ -38,6 +49,17 @@
             ]
         }
     },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
     "minimum-stability": "stable",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "scripts": {
+        "test": "pest",
+        "lint": "pint --test",
+        "format": "pint"
+    }
 }

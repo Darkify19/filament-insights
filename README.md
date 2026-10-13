@@ -79,3 +79,13 @@ class SalnInsights extends InsightsPage
 - Date grouping supports MySQL/MariaDB, PostgreSQL and SQLite.
 - Accessors (computed attributes) can't be grouped or summed: they don't exist in SQL.
 - Table filters and tabs are not applied; each widget sets its own period.
+
+## Tests
+
+```bash
+composer install
+composer test   # Pest, on an in-memory SQLite panel
+composer lint   # Pint, read-only
+```
+
+CI runs the suite against every supported Filament line.
