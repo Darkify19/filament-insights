@@ -1,0 +1,41 @@
+version: 2
+
+# composer.lock is not committed (this is a library), so Composer updates only happen when
+# a new release falls outside a constraint. "widen" then adds the new range to the old one
+# instead of dropping it. Filament's own majors are ignored: supporting a new Filament line
+# is deliberate work, not a bump.
+#
+# Every entry waits 7 days after a release before proposing it, and groups everything into
+# one PR per ecosystem.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: composer
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    versioning-strategy: widen
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      - dependency-name: filament/filament
+        update-types: ["version-update:semver-major"]
+    groups:
+      composer:
+        patterns: ["*"]
