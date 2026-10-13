@@ -133,6 +133,8 @@
         /* While dragging, the widget's own spot is a soft outlined slot rather than a faded copy. */
         .fi-insights-grid > .fi-sortable-ghost { opacity: 1; outline: 2px dashed color-mix(in srgb, currentColor 30%, transparent); outline-offset: 2px; }
         .fi-insights-grid > .fi-sortable-ghost > * { opacity: 0.2; }
+        /* Touch drags a copy of the widget; SortableJS fades it to 0.8 inline, which muddies the lift. */
+        .fi-insights-grid > .sortable-fallback { opacity: 1 !important; }
 
         /* Hidden until motion.js plays the entrance; shown regardless after 1.5s or with reduced motion. */
         .fi-insights-pending > * { opacity: 0; animation: fi-insights-reveal 1ms 1.5s forwards; }

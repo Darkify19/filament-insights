@@ -5,8 +5,22 @@ each dashboard reads from the resource's own list-page table query, so a chart c
 the records its viewer could see in that table (`getEloquentQuery()` and `modifyQueryUsing()`
 scopes both apply).
 
+<div class="filament-hidden">
+
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/carljanzell/filament-insights.svg?style=flat-square)](https://packagist.org/packages/carljanzell/filament-insights)
+[![Total Downloads](https://img.shields.io/packagist/dt/carljanzell/filament-insights.svg?style=flat-square)](https://packagist.org/packages/carljanzell/filament-insights)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Darkify19/filament-insights/ci.yaml?branch=main&label=tests&style=flat-square)](https://github.com/Darkify19/filament-insights/actions/workflows/ci.yaml)
+[![License](https://img.shields.io/packagist/l/carljanzell/filament-insights.svg?style=flat-square)](https://github.com/Darkify19/filament-insights/blob/main/LICENSE)
+
+</div>
+
 Works on **Filament 3, 4 and 5** from one codebase: 3.3.53+, 4.13.2+ and 5.8.2+, the first
 releases of each line without a known security advisory.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Darkify19/filament-insights/main/art/dashboard-dark.png">
+  <img alt="An insights page with stats for orders, revenue, average order and items sold, a revenue-per-day line chart, and charts of orders by status, top customers and orders by channel" src="https://raw.githubusercontent.com/Darkify19/filament-insights/main/art/dashboard-light.png">
+</picture>
 
 ## Install
 
@@ -57,6 +71,8 @@ AttendanceInsights::linkAction(),
 
 Admins rearrange a dashboard by dragging widgets on the page (press and hold on touch), or by
 focusing one and pressing Alt + arrow keys. The order is saved for everyone who views it.
+
+<img alt="Widgets rising in as the page loads, stats counting up, then a chart picked up, dragged over a dashed slot and dropped beside the revenue chart" src="https://raw.githubusercontent.com/Darkify19/filament-insights/main/art/rearrange.gif" width="960">
 
 Widgets rise in one after another, stats count up as they load, a picked-up widget lifts over
 a soft outlined slot, and a dropped one settles with a small spring. The motion runs on a
