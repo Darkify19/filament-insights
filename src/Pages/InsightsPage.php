@@ -166,6 +166,10 @@ abstract class InsightsPage extends Page
     protected function widgetFields(): array
     {
         $insights = new InsightQuery(static::getResource(), static::getExcludedColumns());
+        $numeric = $insights->options('numeric');
+        $dates = $insights->options('date');
+        $groups = $insights->options('group');
+        $timeline = ['@day' => 'Day', '@month' => 'Month', '@year' => 'Year'];
         $custom = collect(FilamentInsightsPlugin::get()->getWidgets())
             ->mapWithKeys(fn (string $widget): array => [$widget => Str::headline(class_basename($widget))])
             ->all();
@@ -207,7 +211,9 @@ abstract class InsightsPage extends Page
                 ->visible($isData),
             Select::make('column')
                 ->label('Of field')
-                ->options($insights->options('numeric'))
+                ->options($numeric)
+                // Selects don't reject values outside their options; these reach SQL, so say it outright.
+                ->in(array_keys($numeric))
                 ->required()
                 ->visible(fn ($get): bool => $isData($get) && $get('aggregate') !== 'count'),
             ToggleButtons::make('chart')
@@ -220,9 +226,10 @@ abstract class InsightsPage extends Page
             Select::make('group_by')
                 ->label('Group by')
                 ->options([
-                    'Over time' => ['@day' => 'Day', '@month' => 'Month', '@year' => 'Year'],
-                    'By field' => $insights->options('group'),
+                    'Over time' => $timeline,
+                    'By field' => $groups,
                 ])
+                ->in([...array_keys($timeline), ...array_keys($groups)])
                 ->required()
                 ->live()
                 ->visible($isChart),
@@ -235,7 +242,8 @@ abstract class InsightsPage extends Page
                 ->visible(fn ($get): bool => $isChart($get) && filled($get('group_by')) && ! $isTimeline($get)),
             Select::make('date_column')
                 ->label('Date field')
-                ->options($insights->options('date'))
+                ->options($dates)
+                ->in(array_keys($dates))
                 ->placeholder('None')
                 ->required(fn ($get): bool => $isChart($get) && $isTimeline($get))
                 ->live()

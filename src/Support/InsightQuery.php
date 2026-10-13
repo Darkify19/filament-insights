@@ -53,7 +53,8 @@ class InsightQuery
 
     protected const DATES = ['date', 'datetime', 'timestamp', 'timestamptz'];
 
-    protected const UNGROUPABLE = ['text', 'tinytext', 'mediumtext', 'longtext', 'json', 'jsonb', 'blob', 'tinyblob', 'mediumblob', 'longblob', 'binary', 'varbinary', 'bytea'];
+    /** Free text, binary, and fractional amounts: every row its own group, so never a useful axis. */
+    protected const UNGROUPABLE = ['text', 'tinytext', 'mediumtext', 'longtext', 'json', 'jsonb', 'blob', 'tinyblob', 'mediumblob', 'longblob', 'binary', 'varbinary', 'bytea', 'decimal', 'numeric', 'float', 'double', 'double precision', 'real', 'float4', 'float8', 'money'];
 
     /** @var array<class-string<Model>, array{columns: array<string, array{type: string, boolean: bool}>, relations: array<string, string>}> */
     protected static array $schemas = [];
