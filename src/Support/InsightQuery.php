@@ -62,8 +62,9 @@ class InsightQuery
 
     /**
      * @param  class-string<resource>  $resource
+     * @param  list<string>  $excluded  columns never offered or accepted
      */
-    public function __construct(protected string $resource)
+    public function __construct(protected string $resource, protected array $excluded = [])
     {
         $this->model = app($resource::getModel());
     }
@@ -82,6 +83,20 @@ class InsightQuery
         $until = CarbonImmutable::now()->endOfDay()->subDays($days * $period);
 
         return [$until->subDays($days - 1)->startOfDay(), $until];
+    }
+
+    /**
+     * @return list<string> every column a widget config reads
+     */
+    public static function columnsIn(array $config): array
+    {
+        $group = (string) ($config['group_by'] ?? '');
+
+        return array_values(array_filter([
+            $config['column'] ?? null,
+            $config['date_column'] ?? null,
+            str_starts_with($group, '@') ? null : $group,
+        ]));
     }
 
     public static function describe(array $config): string
@@ -271,7 +286,7 @@ class InsightQuery
     {
         $type = $this->schema()['columns'][$column]['type'] ?? null;
 
-        return $type !== null && match ($kind) {
+        return $type !== null && ! in_array($column, $this->excluded, true) && match ($kind) {
             // Summing ids is never what anyone meant.
             'numeric' => in_array($type, self::NUMERIC, true)
                 && $column !== $this->model->getKeyName()

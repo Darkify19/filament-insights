@@ -30,8 +30,26 @@ abstract class InsightsPage extends Page
 {
     protected static ?string $breadcrumb = 'Insights';
 
+    /**
+     * Columns this page never offers, e.g. personal fields that shouldn't be charted.
+     *
+     * @var list<string>
+     */
+    protected static array $excludedColumns = [];
+
     /** @var list<array<string, mixed>>|null */
     protected ?array $cachedWidgets = null;
+
+    /**
+     * Override when exclusions depend on the viewer. A saved widget that reads an
+     * excluded column is skipped rather than shown.
+     *
+     * @return list<string>
+     */
+    public static function getExcludedColumns(): array
+    {
+        return static::$excludedColumns;
+    }
 
     public function getTitle(): string
     {
@@ -74,9 +92,14 @@ abstract class InsightsPage extends Page
     public function getDashboardMounts(): array
     {
         $custom = FilamentInsightsPlugin::get()->getWidgets();
+        $excluded = static::getExcludedColumns();
 
         return collect($this->dashboardWidgets())
-            ->map(function (array $widget, int $index) use ($custom): ?array {
+            ->map(function (array $widget, int $index) use ($custom, $excluded): ?array {
+                if (array_intersect(InsightQuery::columnsIn($widget), $excluded)) {
+                    return null;
+                }
+
                 $class = match ($widget['type'] ?? null) {
                     'stat' => InsightStat::class,
                     'chart' => InsightChart::class,
@@ -142,7 +165,7 @@ abstract class InsightsPage extends Page
      */
     protected function widgetFields(): array
     {
-        $insights = new InsightQuery(static::getResource());
+        $insights = new InsightQuery(static::getResource(), static::getExcludedColumns());
         $custom = collect(FilamentInsightsPlugin::get()->getWidgets())
             ->mapWithKeys(fn (string $widget): array => [$widget => Str::headline(class_basename($widget))])
             ->all();

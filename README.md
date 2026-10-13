@@ -57,6 +57,21 @@ AttendanceInsights::linkAction(),
 Only real columns are offered. Hidden and encrypted attributes are excluded, and every
 column name is checked against the table schema before it reaches SQL.
 
+Keep a page's personal fields out of the picker with `$excludedColumns`, or override
+`getExcludedColumns()` when it depends on the viewer. A saved widget that reads an
+excluded column is skipped:
+
+```php
+class SalnInsights extends InsightsPage
+{
+    protected static string $resource = SalnResource::class;
+
+    protected static ?string $title = 'SALN insights';
+
+    protected static array $excludedColumns = ['spouse', 'spouse_office'];
+}
+```
+
 ## Limits
 
 - Date grouping supports MySQL/MariaDB, PostgreSQL and SQLite.
