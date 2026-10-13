@@ -1,0 +1,42 @@
+name: Release
+
+# Packagist reads tags on its own. The GitHub Release is for people: pushing a
+# semver tag publishes one, so every version has notes to read.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Work lands as direct commits rather than PRs, so GitHub's generated notes would be
+      # just a compare link. The commit subjects since the previous tag are the real notes.
+      - name: List the commits since the previous tag
+        run: |
+          previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          git log --no-merges --pretty='- %s' "${previous:+$previous..}${GITHUB_REF_NAME}" > notes.md
+
+      - name: Create the release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: ${{ github.ref_name }}
+          body_path: notes.md
+          generate_release_notes: true
+          # Latest goes to the highest version, not the newest tag, so a patch for an
+          # older line can't take it.
+          make_latest: legacy
+          # v1.0.0-beta.1 and similar stay marked as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
