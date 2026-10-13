@@ -54,6 +54,9 @@ AttendanceInsights::linkAction(),
   by a field (top N). Foreign keys show the related record's title, enums their label.
 - **Custom widget**: any widget registered with `->widgets()`.
 
+Admins rearrange a dashboard by dragging widgets on the page (press and hold on touch), or by
+focusing one and pressing Alt + arrow keys. The order is saved for everyone who views it.
+
 Only real columns are offered. Hidden and encrypted attributes are excluded, and every
 column name is checked against the table schema before it reaches SQL.
 

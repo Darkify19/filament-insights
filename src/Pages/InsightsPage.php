@@ -93,9 +93,10 @@ abstract class InsightsPage extends Page
     {
         $custom = FilamentInsightsPlugin::get()->getWidgets();
         $excluded = static::getExcludedColumns();
+        $keys = static::widgetKeys($this->dashboardWidgets());
 
         return collect($this->dashboardWidgets())
-            ->map(function (array $widget, int $index) use ($custom, $excluded): ?array {
+            ->map(function (array $widget, int $index) use ($custom, $excluded, $keys): ?array {
                 if (array_intersect(InsightQuery::columnsIn($widget), $excluded)) {
                     return null;
                 }
@@ -113,14 +114,65 @@ abstract class InsightsPage extends Page
                         ...$class::getDefaultProperties(),
                         ...($widget['type'] === 'widget' ? [] : ['config' => $widget, 'resource' => static::getResource()]),
                     ],
-                    // Keyed by content, so an edited widget remounts instead of keeping stale numbers.
-                    'key' => $index.'-'.md5(json_encode($widget)),
+                    'key' => $keys[$index],
                     'span' => (int) ($widget['span'] ?? 6),
                 ];
             })
             ->filter()
             ->values()
             ->all();
+    }
+
+    /**
+     * Saves the order a manager dragged on the page. Widgets they can't see keep their slots.
+     *
+     * @param  array<int, mixed>  $keys  the visible widgets' keys, in their new order
+     */
+    public function reorderWidgets(array $keys): void
+    {
+        abort_unless(FilamentInsightsPlugin::get()->isManageable(), 403);
+
+        $visible = array_column($this->getDashboardMounts(), 'key');
+
+        // Anything other than a reordering of what's on screen means someone edited the dashboard meanwhile.
+        if (collect($keys)->sort()->values()->all() !== collect($visible)->sort()->values()->all()) {
+            // Sent from the browser: a widget remounting in this same render would claim a session notification.
+            $this->js("new FilamentNotification().title('This dashboard was changed elsewhere, so it has been reloaded').warning().send()");
+
+            return;
+        }
+
+        $widgets = $this->dashboardWidgets();
+        $byKey = array_combine(static::widgetKeys($widgets), $widgets);
+
+        foreach (array_keys($byKey) as $index => $key) {
+            if (in_array($key, $visible, true)) {
+                $widgets[$index] = $byKey[array_shift($keys)];
+            }
+        }
+
+        InsightDashboard::query()->updateOrCreate(['key' => static::class], ['widgets' => $widgets]);
+
+        // The browser already shows this order. A morph would re-insert every widget and drop keyboard focus.
+        $this->skipRender();
+    }
+
+    /**
+     * One key per saved widget: its content hash, plus a count for identical copies. Free of position,
+     * so a reordered widget keeps its mounted component; tied to content, so an edited one remounts.
+     *
+     * @param  list<array<string, mixed>>  $widgets
+     * @return list<string>
+     */
+    protected static function widgetKeys(array $widgets): array
+    {
+        $seen = [];
+
+        return array_map(function (array $widget) use (&$seen): string {
+            $hash = md5(json_encode($widget));
+
+            return $hash.'-'.($seen[$hash] = ($seen[$hash] ?? 0) + 1);
+        }, $widgets);
     }
 
     protected function getHeaderActions(): array

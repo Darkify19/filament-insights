@@ -1,5 +1,7 @@
 <x-filament-panels::page>
-    @php($widgets = $this->getDashboardMounts())
+    @php
+        $widgets = $this->getDashboardMounts();
+    @endphp
 
     @if (blank($widgets))
         <x-filament::section>
@@ -17,10 +19,71 @@
             </div>
         </x-filament::section>
     @else
-        {{-- Plain CSS grid: plugin markup can't rely on the host compiling Tailwind classes. --}}
-        <div class="fi-insights-grid">
+        @php
+            $arrangeable = \CarlJanzell\FilamentInsights\FilamentInsightsPlugin::get()->isManageable();
+
+            // Attribute bags, not @if inside the tags: Livewire 3 injects a morph marker at every
+            // @if, and one inside a tag's attribute list closes that tag early.
+            $gridArrangement = new \Illuminate\View\ComponentAttributeBag($arrangeable ? [
+                'role' => 'list',
+                'x-sortable' => '',
+                'x-data' => <<<'JS'
+                {
+                    init() {
+                        this.$nextTick(() => Object.entries({
+                            delay: 350,
+                            delayOnTouchOnly: true,
+                            touchStartThreshold: 8,
+                            filter: 'input, textarea, select, [contenteditable]',
+                            preventOnFilter: false,
+                            animation: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 250,
+                        }).forEach(([option, value]) => this.$el.sortable.option(option, value)))
+                    },
+                    nudge(event) {
+                        const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+                        const item = event.target
+
+                        if (! event.altKey || ! step || item.parentElement !== this.$el) return
+                        event.preventDefault()
+
+                        const to = step < 0 ? item.previousElementSibling : item.nextElementSibling
+                        if (! to) return
+
+                        this.$el.sortable.captureAnimationState()
+                        to[step < 0 ? 'before' : 'after'](item)
+                        this.$el.sortable.animateAll()
+                        item.focus()
+                        this.save()
+                    },
+                    save() {
+                        this.$wire.reorderWidgets(this.$el.sortable.toArray())
+                    },
+                }
+                JS,
+                'x-on:end.stop' => '$event.oldIndex !== $event.newIndex && save()',
+                'x-on:keydown' => 'nudge($event)',
+            ] : []);
+        @endphp
+
+        {{--
+            Plain CSS grid: plugin markup can't rely on the host compiling Tailwind classes.
+            Managers rearrange it with Filament's own x-sortable (SortableJS, shipped on v3 and v5):
+            mouse drags at once, touch after a press-and-hold so the page still scrolls, and
+            Alt + arrow keys move the focused widget one place.
+        --}}
+        <div class="fi-insights-grid" {{ $gridArrangement }}>
             @foreach ($widgets as $widget)
-                <div style="--fi-insights-span: {{ $widget['span'] }}">
+                <div
+                    wire:key="{{ $widget['key'] }}"
+                    style="--fi-insights-span: {{ $widget['span'] }}"
+                    {{ new \Illuminate\View\ComponentAttributeBag($arrangeable ? [
+                        'role' => 'listitem',
+                        'tabindex' => '0',
+                        'aria-description' => 'Drag to rearrange, or hold Alt (Option) and press the arrow keys.',
+                        'x-sortable-item' => $widget['key'],
+                        'x-sortable-handle' => '',
+                    ] : []) }}
+                >
                     @livewire($widget['class'], $widget['props'], key($widget['key']))
                 </div>
             @endforeach
@@ -29,6 +92,8 @@
 
     <style>
         .fi-insights-grid { display: grid; gap: 1.5rem; grid-template-columns: minmax(0, 1fr); }
+        .fi-insights-grid > [x-sortable-handle] { cursor: grab; border-radius: 0.75rem; }
+        .fi-insights-grid > [x-sortable-handle]:focus-visible { outline: 2px solid; outline-offset: 2px; }
         @media (min-width: 1024px) {
             .fi-insights-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
             .fi-insights-grid > * { grid-column: span var(--fi-insights-span) / span var(--fi-insights-span); }
