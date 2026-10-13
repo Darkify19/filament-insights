@@ -12,7 +12,6 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ToggleButtons;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Support\Str;
 
@@ -207,7 +206,8 @@ abstract class InsightsPage extends Page
 
                     $this->cachedWidgets = null;
 
-                    Notification::make()->title('Dashboard saved')->success()->send();
+                    // Sent from the browser, as in reorderWidgets(): an edited widget remounts in this render and would claim it.
+                    $this->js("new FilamentNotification().title('Dashboard saved').success().send()");
                 }),
         ];
     }
