@@ -6,6 +6,7 @@ use CarlJanzell\FilamentInsights\FilamentInsightsPlugin;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\CustomerResource;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrderResource;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrdersOverview;
+use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\UserResource;
 use Filament\Panel;
 use Filament\PanelProvider;
 
@@ -20,6 +21,7 @@ class TestPanelProvider extends PanelProvider
             ->resources([
                 OrderResource::class,
                 CustomerResource::class,
+                UserResource::class,
             ])
             ->plugin(
                 FilamentInsightsPlugin::make()

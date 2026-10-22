@@ -2,6 +2,8 @@
 
 use CarlJanzell\FilamentInsights\Support\InsightQuery;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Models\Customer;
+use CarlJanzell\FilamentInsights\Tests\Fixtures\Models\Person;
+use CarlJanzell\FilamentInsights\Tests\Fixtures\Models\User;
 
 it('offers only real, visible columns that suit each role', function () {
     $insights = insights();
@@ -87,6 +89,30 @@ it('labels groups with record titles, enum labels and yes or no', function () {
     expect($grouped('customer_id'))->toEqual(['Ada' => 2.0, 'Lin' => 1.0, '(none)' => 1.0])
         ->and($grouped('status'))->toEqual(['Paid' => 2.0, 'Pending' => 2.0])
         ->and($grouped('is_paid'))->toEqual(['Yes' => 2.0, 'No' => 2.0]);
+});
+
+it('labels an untitled owner with their name, and a person with their full name', function () {
+    $ana = User::create(['name' => 'Ana', 'email' => 'ana@example.com', 'password' => 'secret']);
+    $ada = Person::create(['first_name' => 'Ada', 'surname' => 'Lovelace']);
+
+    order(['user_id' => $ana->id]);
+    order(['user_id' => $ana->id]);
+    order(['person_id' => $ada->id]);
+
+    $grouped = fn (string $column): array => array_combine(...insights()->series(['group_by' => $column]));
+
+    expect($grouped('user_id'))->toEqual(['Ana' => 2.0, '(none)' => 1.0])
+        ->and($grouped('user_id'))->not->toHaveKey((string) $ana->id)
+        ->and($grouped('person_id'))->toEqual(['Ada Lovelace' => 1.0, '(none)' => 2.0])
+        ->and($grouped('person_id'))->not->toHaveKey((string) $ada->id);
+});
+
+it('labels a missing owner from another relation that has that id', function () {
+    $ada = Person::create(['first_name' => 'Ada', 'surname' => 'Lovelace']);
+
+    order(['user_id' => $ada->id]);
+
+    expect(array_combine(...insights()->series(['group_by' => 'user_id'])))->toEqual(['Ada Lovelace' => 1.0]);
 });
 
 it('keeps a top-N chart between 1 and 50 groups', function () {

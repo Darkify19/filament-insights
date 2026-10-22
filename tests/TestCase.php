@@ -95,9 +95,18 @@ abstract class TestCase extends Orchestra
             $table->timestamps();
         });
 
+        Schema::create('people', function (Blueprint $table): void {
+            $table->id();
+            $table->string('first_name');
+            $table->string('surname');
+            $table->timestamps();
+        });
+
         Schema::create('orders', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('customer_id')->nullable();
+            $table->foreignId('user_id')->nullable();
+            $table->foreignId('person_id')->nullable();
             $table->string('status');
             $table->string('channel')->default('web');
             $table->decimal('total', 10, 2)->default(0);

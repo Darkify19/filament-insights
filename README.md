@@ -66,7 +66,7 @@ AttendanceInsights::linkAction(),
 - **Stat**: count / sum / average / min / max, optionally over the last 7–365 days of a date
   field, with change against the previous period and a trend sparkline.
 - **Chart**: bar, line, pie or doughnut, grouped by day / month / year of a date field, or
-  by a field (top N). Foreign keys show the related record's title, enums their label.
+  by a field (top N). Foreign keys show the related record's title, or its name or full name when that resource has none. A key with no row there is labeled from another relation on the same model when that id matches. Enums show their label.
 - **Custom widget**: any widget registered with `->widgets()`.
 
 Admins rearrange a dashboard by dragging widgets on the page (press and hold on touch), or by

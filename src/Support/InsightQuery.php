@@ -280,17 +280,24 @@ class InsightQuery
         $cast = $this->model->getCasts()[$column] ?? null;
 
         if ($relation = $this->schema()['relations'][$column] ?? null) {
-            /** @var BelongsTo $belongsTo */
-            $belongsTo = $this->model->{$relation}();
-            $ownerKey = $belongsTo->getOwnerKeyName();
-            $resource = Filament::getModelResource($belongsTo->getRelated());
+            $titles = $this->titlesFor($this->model->{$relation}(), $keys);
 
-            $titles = $belongsTo->getRelated()->newQuery()
-                ->whereIn($ownerKey, $keys->filter(fn (mixed $key): bool => filled($key))->all())
-                ->get()
-                ->mapWithKeys(fn (Model $record): array => [
-                    $record->getAttribute($ownerKey) => $resource && $resource::hasRecordTitle() ? $resource::getRecordTitle($record) : $record->getKey(),
-                ]);
+            // ponytail: a missed key is labeled from another belongsTo on this model (created_by
+            // often stores a personnel id, not a user id). Wrong name if two of those tables share
+            // an id and the real row is gone.
+            foreach ($this->schema()['relations'] as $other) {
+                if ($other === $relation) {
+                    continue;
+                }
+
+                $missing = $keys->filter(fn (mixed $key): bool => filled($key) && ! isset($titles[$key]));
+
+                if ($missing->isEmpty()) {
+                    break;
+                }
+
+                $titles += $this->titlesFor($this->model->{$other}(), $missing);
+            }
         }
 
         return $keys->map(fn (mixed $key): string => (string) match (true) {
@@ -300,6 +307,52 @@ class InsightQuery
             $this->schema()['columns'][$column]['boolean'] => $key ? 'Yes' : 'No',
             default => $key,
         })->values()->all();
+    }
+
+    /**
+     * @param  Collection<int, mixed>  $keys
+     * @return array<int|string, string>
+     */
+    protected function titlesFor(BelongsTo $belongsTo, Collection $keys): array
+    {
+        $ownerKey = $belongsTo->getOwnerKeyName();
+        $ids = $keys->filter(fn (mixed $key): bool => filled($key))->all();
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $resource = Filament::getModelResource($belongsTo->getRelated());
+
+        return $belongsTo->getRelated()->newQuery()
+            ->whereIn($ownerKey, $ids)
+            ->get()
+            ->mapWithKeys(fn (Model $record): array => [
+                $record->getAttribute($ownerKey) => $this->title($record, $resource),
+            ])
+            ->all();
+    }
+
+    /**
+     * A related record's title, or its name when the resource never set one.
+     *
+     * @param  class-string<resource>|null  $resource
+     */
+    protected function title(Model $record, ?string $resource): string
+    {
+        if ($resource !== null && $resource::hasRecordTitle()) {
+            return (string) ($resource::getRecordTitle($record) ?? $record->getKey());
+        }
+
+        foreach (['name', 'full_name'] as $attribute) {
+            $value = $record->getAttribute($attribute);
+
+            if (is_scalar($value) && filled($value)) {
+                return (string) $value;
+            }
+        }
+
+        return (string) $record->getKey();
     }
 
     /**
