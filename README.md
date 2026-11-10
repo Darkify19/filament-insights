@@ -104,6 +104,15 @@ class SalnInsights extends InsightsPage
 - Accessors (computed attributes) can't be grouped or summed: they don't exist in SQL.
 - Table filters and tabs are not applied; each widget sets its own period.
 
+## For AI agents
+
+The package ships an agent guide at
+[`resources/boost/guidelines/core.blade.php`](resources/boost/guidelines/core.blade.php): setup,
+the plugin methods, the page API, widget configs and common tasks. Apps using
+[Laravel Boost](https://github.com/laravel/boost) pick it up automatically on
+`php artisan boost:install` (or `boost:update`). Without Boost, point your agent at that file.
+Working on the plugin itself: [AGENTS.md](AGENTS.md).
+
 ## Tests
 
 ```bash
