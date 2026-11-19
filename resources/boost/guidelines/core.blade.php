@@ -78,14 +78,18 @@ Each saved widget is one entry in `insight_dashboards.widgets`. Admins build the
 |---|---|---|
 | `type` | `stat`, `chart`, `widget` | Anything else is skipped. `widget` takes `widget` (a class from `widgets()`). |
 | `label` | string, max 80 | Required. Stat title or chart heading. |
+| `description` | string, max 140 | Optional subtitle/note shown on the stat or chart. |
 | `span` | `3`, `4`, `6`, `8`, `12` | Width on a 12-column grid. Default `6`. |
-| `aggregate` | `count` (default), `sum`, `avg`, `min`, `max` | `count` needs no `column`. |
-| `column` | numeric field | Required for every aggregate except `count`. Ids, `*_id` and relations are refused. |
-| `format` | `number` (default), `money` | `money` only applies with `currency()` set and a non-count aggregate. |
+| `aggregate` | `count` (default), `count_distinct`, `sum`, `avg`, `min`, `max` | `count` needs no `column`. `count_distinct` accepts any filterable column. |
+| `column` | numeric or filterable field | Required for every aggregate except `count`. Ids, `*_id` and relations are refused for numeric aggregates. |
+| `format` | `number` (default), `money` | `money` only applies with `currency()` set and a numeric aggregate (`sum`, `avg`, `min`, `max`). |
 | `chart` | `bar` (default), `line`, `pie`, `doughnut` | Charts only. |
-| `group_by` | `@day`, `@month`, `@year`, or a field | Time buckets need `date_column`. A field gives top N, sized by `limit` (1 to 50, default 10). Dates, text, JSON, binary and decimal fields are not groupable. |
+| `group_by` | `@hour`, `@day`, `@month`, `@year`, or a field | Time buckets need `date_column`. A field gives top N, sized by `limit` (1 to 50, default 10). Dates, text, JSON, binary and decimal fields are not groupable. |
 | `date_column` | date or datetime field | Needed for `range` and time buckets. |
-| `range` | `7`, `30`, `90`, `365`, or absent | Last N days, against `date_column`. Absent means all time. |
+| `range` | `today`, `7`, `30`, `90`, `365`, `this_week`, `this_month`, `this_year`, or absent | Rolling days or calendar period against `date_column`. Absent means all time. |
+| `color` | `primary`, `info`, `success`, `warning`, `danger`, `gray` | Optional accent color for stats and bar/line charts. |
+| `icon` | Heroicon name from `InsightStat::ICONS` | Optional icon for stat cards. |
+| `filters` | list of `{column, operator, value?}` | Optional per-widget conditions (`equals`, `not_equals`, `in`, `not_in`, `contains`, `gt`, `gte`, `lt`, `lte`, `is_null`, `is_not_null`). All columns are allowlisted and checked against `$excludedColumns`. |
 
 Stats also show change against the previous period and a sparkline when `range` is set.
 

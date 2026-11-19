@@ -37,6 +37,7 @@ class InsightQuery
 {
     public const AGGREGATES = [
         'count' => 'Count of records',
+        'count_distinct' => 'Unique values',
         'sum' => 'Sum',
         'avg' => 'Average',
         'min' => 'Minimum',
@@ -45,9 +46,35 @@ class InsightQuery
 
     /** Bucket => [key format, display format]. Key formats are also translated to SQL. */
     public const BUCKETS = [
+        'hour' => ['Y-m-d H', 'g A'],
         'day' => ['Y-m-d', 'M j'],
         'month' => ['Y-m', 'M Y'],
         'year' => ['Y', 'Y'],
+    ];
+
+    public const RANGES = [
+        'today' => 'Today',
+        '7' => 'Last 7 days',
+        '30' => 'Last 30 days',
+        '90' => 'Last 90 days',
+        '365' => 'Last 365 days',
+        'this_week' => 'This week',
+        'this_month' => 'This month',
+        'this_year' => 'This year',
+    ];
+
+    public const FILTER_OPERATORS = [
+        'equals' => 'is',
+        'not_equals' => 'is not',
+        'in' => 'is any of',
+        'not_in' => 'is none of',
+        'contains' => 'contains',
+        'gt' => 'greater than',
+        'gte' => 'at least',
+        'lt' => 'less than',
+        'lte' => 'at most',
+        'is_null' => 'is empty',
+        'is_not_null' => 'is not empty',
     ];
 
     protected const NUMERIC = ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint', 'decimal', 'numeric', 'float', 'double', 'double precision', 'real', 'int2', 'int4', 'int8', 'float4', 'float8', 'money'];
@@ -57,8 +84,13 @@ class InsightQuery
     /** Free text, binary, and fractional amounts: every row its own group, so never a useful axis. */
     protected const UNGROUPABLE = ['text', 'tinytext', 'mediumtext', 'longtext', 'json', 'jsonb', 'blob', 'tinyblob', 'mediumblob', 'longblob', 'binary', 'varbinary', 'bytea', 'decimal', 'numeric', 'float', 'double', 'double precision', 'real', 'float4', 'float8', 'money'];
 
+    protected const UNFILTERABLE = ['json', 'jsonb', 'blob', 'tinyblob', 'mediumblob', 'longblob', 'binary', 'varbinary', 'bytea'];
+
     /** @var array<class-string<Model>, array{columns: array<string, array{type: string, boolean: bool}>, relations: array<string, string>}> */
     protected static array $schemas = [];
+
+    /** @var array<class-string<resource>, array<string, string>> */
+    protected static array $tableLabels = [];
 
     protected Model $model;
 
@@ -76,9 +108,39 @@ class InsightQuery
      */
     public static function window(array $config, int $period = 0): array
     {
-        $days = (int) ($config['range'] ?? 0);
+        if (blank($config['date_column'] ?? null)) {
+            return [null, null];
+        }
 
-        if ($days < 1 || blank($config['date_column'] ?? null)) {
+        $range = $config['range'] ?? null;
+
+        if ($range === 'today') {
+            $day = CarbonImmutable::now()->subDays($period);
+
+            return [$day->startOfDay(), $day->endOfDay()];
+        }
+
+        if ($range === 'this_week') {
+            $start = CarbonImmutable::now()->startOfWeek()->subWeeks($period);
+
+            return [$start, $start->endOfWeek()];
+        }
+
+        if ($range === 'this_month') {
+            $start = CarbonImmutable::now()->startOfMonth()->subMonthsNoOverflow($period);
+
+            return [$start, $start->endOfMonth()];
+        }
+
+        if ($range === 'this_year') {
+            $start = CarbonImmutable::now()->startOfYear()->subYearsNoOverflow($period);
+
+            return [$start, $start->endOfYear()];
+        }
+
+        $days = (int) $range;
+
+        if ($days < 1) {
             return [null, null];
         }
 
@@ -88,17 +150,36 @@ class InsightQuery
     }
 
     /**
+     * Time bucket used for a stat's trend sparkline.
+     */
+    public static function sparklineBucket(array $config): string
+    {
+        $range = (string) ($config['range'] ?? '');
+
+        return match (true) {
+            $range === 'today' => '@hour',
+            $range === 'this_year', (int) $range > 90 => '@month',
+            default => '@day',
+        };
+    }
+
+    /**
      * @return list<string> every column a widget config reads
      */
     public static function columnsIn(array $config): array
     {
         $group = (string) ($config['group_by'] ?? '');
+        $filterColumns = collect($config['filters'] ?? [])
+            ->filter(fn (mixed $filter): bool => is_array($filter) && filled($filter['column'] ?? null))
+            ->map(fn (array $filter): string => (string) $filter['column'])
+            ->all();
 
-        return array_values(array_filter([
+        return array_values(array_unique(array_filter([
             $config['column'] ?? null,
             $config['date_column'] ?? null,
             str_starts_with($group, '@') ? null : $group,
-        ]));
+            ...$filterColumns,
+        ])));
     }
 
     /**
@@ -111,13 +192,70 @@ class InsightQuery
 
     public static function describe(array $config): string
     {
-        return static::window($config)[0] ? "Last {$config['range']} days" : 'All time';
+        if (static::window($config)[0] === null) {
+            return 'All time';
+        }
+
+        $range = (string) ($config['range'] ?? '');
+
+        return self::RANGES[$range] ?? "Last {$range} days";
+    }
+
+    /**
+     * Friendly human-readable label for a column, preferring the resource table's own label.
+     */
+    public function labelFor(string $column): string
+    {
+        return $this->tableLabels()[$column]
+            ?? Str::headline($this->schema()['relations'][$column] ?? $column);
+    }
+
+    /**
+     * Plain-English summary of a widget's active filters, or null when unfiltered.
+     */
+    public function filterSummary(array $config): ?string
+    {
+        $parts = collect($config['filters'] ?? [])
+            ->filter(fn (mixed $filter): bool => is_array($filter) && filled($filter['column'] ?? null))
+            ->map(function (array $filter): ?string {
+                $column = (string) $filter['column'];
+                $operator = (string) ($filter['operator'] ?? 'equals');
+                $opLabel = self::FILTER_OPERATORS[$operator] ?? $operator;
+                $fieldLabel = $this->labelFor($column);
+
+                if (in_array($operator, ['is_null', 'is_not_null'], true)) {
+                    return "{$fieldLabel} {$opLabel}";
+                }
+
+                $value = $filter['value'] ?? null;
+
+                if ($value === null || $value === '' || $value === []) {
+                    return null;
+                }
+
+                $options = $this->filterValueOptions($column);
+
+                if (is_array($value)) {
+                    $formatted = collect($value)
+                        ->map(fn (mixed $item): string => $options[(string) $item] ?? (string) $item)
+                        ->implode(', ');
+                } else {
+                    $formatted = $options[(string) $value] ?? (string) $value;
+                }
+
+                return "{$fieldLabel} {$opLabel} {$formatted}";
+            })
+            ->filter()
+            ->values()
+            ->all();
+
+        return $parts === [] ? null : implode(' · ', $parts);
     }
 
     /**
      * Select options for the widget form: column => label.
      *
-     * @param  'numeric'|'date'|'group'  $kind
+     * @param  'numeric'|'date'|'group'|'filter'  $kind
      * @return array<string, string>
      */
     public function options(string $kind): array
@@ -125,8 +263,53 @@ class InsightQuery
         return collect($this->schema()['columns'])
             ->keys()
             ->filter(fn (string $column): bool => $this->is($kind, $column))
-            ->mapWithKeys(fn (string $column): array => [$column => Str::headline($this->schema()['relations'][$column] ?? $column)])
+            ->mapWithKeys(fn (string $column): array => [$column => $this->labelFor($column)])
             ->all();
+    }
+
+    /**
+     * Suggested value options for a filter column (enums, booleans, and belongsTo relations).
+     *
+     * @return array<string, string>
+     */
+    public function filterValueOptions(string $column): array
+    {
+        if (! $this->is('filter', $column)) {
+            return [];
+        }
+
+        $cast = $this->model->getCasts()[$column] ?? null;
+
+        if (is_string($cast) && is_subclass_of($cast, BackedEnum::class)) {
+            return collect($cast::cases())
+                ->mapWithKeys(fn (BackedEnum $case): array => [
+                    (string) $case->value => $case instanceof HasLabel ? (string) $case->getLabel() : Str::headline($case->name),
+                ])
+                ->all();
+        }
+
+        if ($this->schema()['columns'][$column]['boolean'] ?? false) {
+            return ['1' => 'Yes', '0' => 'No'];
+        }
+
+        if ($relation = $this->schema()['relations'][$column] ?? null) {
+            return rescue(function () use ($relation): array {
+                /** @var BelongsTo $belongsTo */
+                $belongsTo = $this->model->{$relation}();
+                $ownerKey = $belongsTo->getOwnerKeyName();
+                $resource = Filament::getModelResource($belongsTo->getRelated());
+
+                return $belongsTo->getRelated()->newQuery()
+                    ->limit(100)
+                    ->get()
+                    ->mapWithKeys(fn (Model $record): array => [
+                        (string) $record->getAttribute($ownerKey) => $this->title($record, $resource),
+                    ])
+                    ->all();
+            }, [], report: false);
+        }
+
+        return [];
     }
 
     public function value(array $config, int $period = 0): float
@@ -178,24 +361,62 @@ class InsightQuery
      */
     public function query(): Builder
     {
+        $table = $this->listTable();
+
+        return ($table?->getQuery() ?? $this->resource::getEloquentQuery())->reorder()->setEagerLoads([]);
+    }
+
+    protected function listTable(): mixed
+    {
         $page = ($this->resource::getPages()['index'] ?? null)?->getPage();
 
-        if ($page !== null && is_subclass_of($page, HasTable::class)) {
-            // Filament's own InteractsWithPageTable does the same: boot the list page
-            // off-screen to borrow its table. The tab is cleared so a default tab
-            // doesn't silently narrow the numbers; filters are never applied.
-            $livewire = app('livewire')->new($page);
-            trigger('mount', $livewire, [], null, null, []);
-
-            if (property_exists($livewire, 'activeTab')) {
-                $livewire->activeTab = null;
-            }
-
-            $livewire->bootedInteractsWithTable();
-            $query = $livewire->getTable()->getQuery();
+        if ($page === null || ! is_subclass_of($page, HasTable::class)) {
+            return null;
         }
 
-        return ($query ?? $this->resource::getEloquentQuery())->reorder()->setEagerLoads([]);
+        // Filament's own InteractsWithPageTable does the same: boot the list page
+        // off-screen to borrow its table. The tab is cleared so a default tab
+        // doesn't silently narrow the numbers; filters are never applied.
+        $livewire = app('livewire')->new($page);
+        trigger('mount', $livewire, [], null, null, []);
+
+        if (property_exists($livewire, 'activeTab')) {
+            $livewire->activeTab = null;
+        }
+
+        $livewire->bootedInteractsWithTable();
+
+        return $livewire->getTable();
+    }
+
+    /**
+     * Human labels from the resource's own list table, keyed by column name.
+     *
+     * @return array<string, string>
+     */
+    protected function tableLabels(): array
+    {
+        return static::$tableLabels[$this->resource] ??= rescue(function (): array {
+            $table = $this->listTable();
+
+            if ($table === null) {
+                return [];
+            }
+
+            return collect($table->getColumns())
+                ->filter(fn (mixed $column): bool => is_object($column)
+                    && method_exists($column, 'getName')
+                    && method_exists($column, 'getLabel')
+                    && ! str_contains((string) $column->getName(), '.'))
+                ->mapWithKeys(function (object $column): array {
+                    $label = $column->getLabel();
+
+                    return is_string($label) && filled($label)
+                        ? [(string) $column->getName() => $label]
+                        : [];
+                })
+                ->all();
+        }, [], report: false);
     }
 
     protected function constrain(Builder $query, array $config, ?CarbonImmutable $from, ?CarbonImmutable $until): Builder
@@ -204,12 +425,99 @@ class InsightQuery
             $query->whereBetween($this->column($config['date_column'] ?? null, 'date'), [$from, $until]);
         }
 
+        $this->applyFilters($query, $config['filters'] ?? []);
+
         return $query;
+    }
+
+    /**
+     * @param  array<int, mixed>  $filters
+     */
+    protected function applyFilters(Builder $query, array $filters): void
+    {
+        foreach ($filters as $filter) {
+            if (! is_array($filter) || blank($filter['column'] ?? null)) {
+                continue;
+            }
+
+            $rawColumn = (string) $filter['column'];
+            $column = $this->column($rawColumn, 'filter');
+            $operator = (string) ($filter['operator'] ?? 'equals');
+
+            if ($operator === 'is_null') {
+                $query->whereNull($column);
+
+                continue;
+            }
+
+            if ($operator === 'is_not_null') {
+                $query->whereNotNull($column);
+
+                continue;
+            }
+
+            $value = $filter['value'] ?? null;
+
+            if ($value === null || $value === '' || $value === []) {
+                continue;
+            }
+
+            match ($operator) {
+                'equals' => $query->where($column, '=', $this->coerceFilterValue($rawColumn, $value)),
+                'not_equals' => $query->where($column, '!=', $this->coerceFilterValue($rawColumn, $value)),
+                'gt' => $query->where($column, '>', $value),
+                'gte' => $query->where($column, '>=', $value),
+                'lt' => $query->where($column, '<', $value),
+                'lte' => $query->where($column, '<=', $value),
+                'contains' => $query->where(
+                    $column,
+                    $query->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like',
+                    '%'.addcslashes((string) $value, '\\%_').'%',
+                ),
+                'in' => $query->whereIn($column, $this->parseFilterList($rawColumn, $value)),
+                'not_in' => $query->whereNotIn($column, $this->parseFilterList($rawColumn, $value)),
+                default => throw new InvalidArgumentException("[{$operator}] is not a usable filter operator."),
+            };
+        }
+    }
+
+    protected function coerceFilterValue(string $column, mixed $value): mixed
+    {
+        if (! ($this->schema()['columns'][$column]['boolean'] ?? false)) {
+            return $value;
+        }
+
+        return match (strtolower((string) $value)) {
+            '1', 'true', 'yes' => true,
+            '0', 'false', 'no' => false,
+            default => (bool) $value,
+        };
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    protected function parseFilterList(string $column, mixed $value): array
+    {
+        $items = is_array($value)
+            ? $value
+            : explode(',', (string) $value);
+
+        return collect($items)
+            ->map(fn (mixed $item): string => trim((string) $item))
+            ->filter(fn (string $item): bool => $item !== '')
+            ->map(fn (string $item): mixed => $this->coerceFilterValue($column, $item))
+            ->values()
+            ->all();
     }
 
     protected function aggregate(array $config, Builder $query): string
     {
         $function = $config['aggregate'] ?? 'count';
+
+        if ($function === 'count_distinct') {
+            return 'count(distinct '.$query->getQuery()->getGrammar()->wrap($this->column($config['column'] ?? null, 'filter')).')';
+        }
 
         if (! in_array($function, ['sum', 'avg', 'min', 'max'], true)) {
             return 'count(*)';
@@ -225,9 +533,9 @@ class InsightQuery
         $format = self::BUCKETS[$unit][0];
 
         return match ($query->getConnection()->getDriverName()) {
-            'pgsql' => "to_char({$column}, '".strtr($format, ['Y' => 'YYYY', 'm' => 'MM', 'd' => 'DD'])."')",
-            'sqlite' => "strftime('".strtr($format, ['Y' => '%Y', 'm' => '%m', 'd' => '%d'])."', {$column})",
-            default => "date_format({$column}, '".strtr($format, ['Y' => '%Y', 'm' => '%m', 'd' => '%d'])."')",
+            'pgsql' => "to_char({$column}, '".strtr($format, ['Y' => 'YYYY', 'm' => 'MM', 'd' => 'DD', 'H' => 'HH24'])."')",
+            'sqlite' => "strftime('".strtr($format, ['Y' => '%Y', 'm' => '%m', 'd' => '%d', 'H' => '%H'])."', {$column})",
+            default => "date_format({$column}, '".strtr($format, ['Y' => '%Y', 'm' => '%m', 'd' => '%d', 'H' => '%H'])."')",
         };
     }
 
@@ -356,7 +664,7 @@ class InsightQuery
     }
 
     /**
-     * @param  'numeric'|'date'|'group'  $kind
+     * @param  'numeric'|'date'|'group'|'filter'  $kind
      */
     protected function is(string $kind, string $column): bool
     {
@@ -370,11 +678,12 @@ class InsightQuery
                 && ! str_ends_with($column, '_id'),
             'date' => in_array($type, self::DATES, true),
             'group' => $column !== $this->model->getKeyName() && ! in_array($type, [...self::DATES, ...self::UNGROUPABLE], true),
+            'filter' => ! in_array($type, self::UNFILTERABLE, true),
         };
     }
 
     /**
-     * @param  'numeric'|'date'|'group'  $kind
+     * @param  'numeric'|'date'|'group'|'filter'  $kind
      */
     protected function column(?string $column, string $kind): string
     {

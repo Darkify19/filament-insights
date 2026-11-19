@@ -63,14 +63,27 @@ AttendanceInsights::linkAction(),
 
 ## What admins can build
 
-- **Stat**: count / sum / average / min / max, optionally over the last 7–365 days of a date
-  field, with change against the previous period and a trend sparkline.
-- **Chart**: bar, line, pie or doughnut, grouped by day / month / year of a date field, or
-  by a field (top N). Foreign keys show the related record's title, or its name or full name when that resource has none. A key with no row there is labeled from another relation on the same model when that id matches. Enums show their label.
+- **KPI Stat**: count / unique values (`count_distinct`) / sum / average / min / max, optionally
+  over a rolling window (7–365 days) or calendar period (`Today`, `This week`, `This month`,
+  `This year`) with change against the previous period, a trend sparkline, optional icon,
+  accent color, and subtitle note.
+- **Chart**: bar, line, pie or doughnut, grouped by hour / day / month / year of a date field, or
+  by a field (top N), with optional accent colors and subtitle notes. Foreign keys show the
+  related record's title, or its name or full name when that resource has none. A key with no
+  row there is labeled from another relation on the same model when that id matches. Enums show
+  their label.
+- **Per-widget filters**: narrow any stat or chart with *"Only include records where..."*
+  conditions (`is`, `is not`, `is any of`, `is none of`, `contains`, `>`, `>=`, `<`, `<=`,
+  `is empty`, `is not empty`), with automatic dropdown options for enums, booleans, and
+  `BelongsTo` relations.
 - **Custom widget**: any widget registered with `->widgets()`.
 
-Admins rearrange a dashboard by dragging widgets on the page (press and hold on touch), or by
-focusing one and pressing Alt + arrow keys. The order is saved for everyone who views it.
+Admins can add widgets from **Add widget** (with quick-start templates and a live plain-English
+summary), edit, duplicate, resize, or remove any card directly from its hover toolbar, toggle
+**Preview** to view the dashboard without edit controls, or manage all widgets at once via
+**Manage all**. Admins rearrange a dashboard by dragging widgets on the page (press and hold on
+touch), or by focusing one and pressing Alt + arrow keys. The order is saved for everyone who
+views it.
 
 <img alt="Widgets rising in as the page loads, stats counting up, then a chart picked up, dragged over a dashed slot and dropped beside the revenue chart" src="https://raw.githubusercontent.com/Darkify19/filament-insights/main/art/rearrange.gif" width="960">
 
