@@ -151,7 +151,120 @@ it('lists every column a widget reads', function () {
     expect(InsightQuery::columnsIn(['column' => 'total', 'date_column' => 'ordered_at', 'group_by' => 'status']))
         ->toBe(['total', 'ordered_at', 'status'])
         ->and(InsightQuery::columnsIn(['group_by' => '@month', 'date_column' => 'ordered_at']))
-        ->toBe(['ordered_at']);
+        ->toBe(['ordered_at'])
+        ->and(InsightQuery::columnsIn([
+            'aggregate' => 'count',
+            'filters' => [
+                ['column' => 'status', 'operator' => 'equals', 'value' => 'paid'],
+                ['column' => 'channel', 'operator' => 'is_not_null'],
+            ],
+        ]))
+        ->toBe(['status', 'channel']);
+});
+
+it('filters stats and series with safe per-widget conditions', function () {
+    $ada = Customer::create(['name' => 'Ada']);
+    $lin = Customer::create(['name' => 'Lin']);
+
+    order(['customer_id' => $ada->id, 'status' => 'paid', 'total' => 100, 'is_paid' => true, 'notes' => 'Priority rush']);
+    order(['customer_id' => $ada->id, 'status' => 'paid', 'total' => 250, 'is_paid' => true, 'notes' => 'Regular']);
+    order(['customer_id' => $lin->id, 'status' => 'pending', 'total' => 50, 'is_paid' => false, 'notes' => null]);
+
+    expect(insights()->value([
+        'aggregate' => 'count',
+        'filters' => [['column' => 'status', 'operator' => 'equals', 'value' => 'paid']],
+    ]))->toBe(2.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'status', 'operator' => 'not_equals', 'value' => 'paid']],
+        ]))->toBe(1.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'status', 'operator' => 'in', 'value' => ['paid', 'pending']]],
+        ]))->toBe(3.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'status', 'operator' => 'not_in', 'value' => 'pending']],
+        ]))->toBe(2.0)
+        ->and(insights()->value([
+            'aggregate' => 'sum',
+            'column' => 'total',
+            'filters' => [
+                ['column' => 'is_paid', 'operator' => 'equals', 'value' => '1'],
+                ['column' => 'total', 'operator' => 'gte', 'value' => 150],
+            ],
+        ]))->toBe(250.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'notes', 'operator' => 'contains', 'value' => 'rush']],
+        ]))->toBe(1.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'notes', 'operator' => 'is_null']],
+        ]))->toBe(1.0)
+        ->and(insights()->value([
+            'aggregate' => 'count',
+            'filters' => [['column' => 'notes', 'operator' => 'is_not_null']],
+        ]))->toBe(2.0);
+});
+
+it('refuses disallowed filter columns and operators before they reach SQL', function (array $filter) {
+    expect(fn () => insights()->value(['aggregate' => 'count', 'filters' => [$filter]]))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'injected column' => [['column' => 'status; drop table orders', 'operator' => 'equals', 'value' => 'paid']],
+    'hidden column' => [['column' => 'internal_code', 'operator' => 'equals', 'value' => 'x']],
+    'encrypted column' => [['column' => 'secret', 'operator' => 'is_not_null']],
+    'excluded column' => [['column' => 'channel', 'operator' => 'equals', 'value' => 'web']],
+    'unknown operator' => [['column' => 'status', 'operator' => 'raw_sql', 'value' => 'paid']],
+]);
+
+it('counts unique values with count_distinct', function () {
+    $ada = Customer::create(['name' => 'Ada']);
+    $lin = Customer::create(['name' => 'Lin']);
+
+    order(['customer_id' => $ada->id]);
+    order(['customer_id' => $ada->id]);
+    order(['customer_id' => $lin->id]);
+
+    expect(insights()->value(['aggregate' => 'count_distinct', 'column' => 'customer_id']))->toBe(2.0);
+});
+
+it('supports calendar period presets and hourly buckets', function () {
+    $this->travelTo('2026-03-10 14:30:00');
+
+    order(['ordered_at' => '2026-03-10 09:15:00']);
+    order(['ordered_at' => '2026-03-10 09:45:00']);
+    order(['ordered_at' => '2026-03-09 11:00:00']); // yesterday
+
+    $todayConfig = ['aggregate' => 'count', 'date_column' => 'ordered_at', 'range' => 'today'];
+
+    expect(insights()->value($todayConfig))->toBe(2.0)
+        ->and(insights()->value($todayConfig, period: 1))->toBe(1.0)
+        ->and(InsightQuery::describe($todayConfig))->toBe('Today')
+        ->and(InsightQuery::describe(['date_column' => 'ordered_at', 'range' => 'this_month']))->toBe('This month');
+
+    [$labels, $values] = insights()->series([...$todayConfig, 'group_by' => '@hour']);
+
+    expect($labels)->toHaveCount(24)
+        ->and($labels[9])->toBe('9 AM')
+        ->and($values[9])->toBe(2.0);
+});
+
+it('suggests enum, boolean and relation value options for filters and summarizes them', function () {
+    $ada = Customer::create(['name' => 'Ada']);
+    $insights = insights();
+
+    expect($insights->filterValueOptions('status'))->toHaveKeys(['paid', 'pending', 'void'])
+        ->and($insights->filterValueOptions('status')['paid'])->toBe('Paid')
+        ->and($insights->filterValueOptions('is_paid'))->toBe(['1' => 'Yes', '0' => 'No'])
+        ->and($insights->filterValueOptions('customer_id')[(string) $ada->id])->toBe('Ada')
+        ->and($insights->filterSummary([
+            'filters' => [
+                ['column' => 'status', 'operator' => 'equals', 'value' => 'paid'],
+                ['column' => 'is_paid', 'operator' => 'equals', 'value' => '1'],
+            ],
+        ]))->toBe('Status is Paid · Is Paid is Yes');
 });
 
 it('shows money in the plugin currency only when a widget asks for it', function () {

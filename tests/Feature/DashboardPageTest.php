@@ -150,5 +150,139 @@ it('rejects a column the editor never offered', function () {
 it('hides the editor from viewers', function () {
     signIn(admin: false);
 
-    Livewire::test(OrderInsights::class)->assertActionHidden('editDashboard');
+    Livewire::test(OrderInsights::class)
+        ->assertActionHidden('editDashboard')
+        ->assertActionHidden('addWidget');
+});
+
+it('lets managers add, edit, duplicate, resize and remove individual widgets', function () {
+    signIn();
+
+    // Add a widget with filters, subtitle, accent color and icon.
+    Livewire::test(OrderInsights::class)
+        ->callAction('addWidget', data: [
+            'type' => 'stat',
+            'label' => 'Paid orders',
+            'description' => 'Completed sales only',
+            'span' => 4,
+            'aggregate' => 'count',
+            'color' => 'success',
+            'icon' => 'heroicon-m-check-circle',
+            'filters' => [
+                ['column' => 'status', 'operator' => 'equals', 'value_select' => 'paid'],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    $saved = InsightDashboard::query()->value('widgets');
+    expect($saved)->toHaveCount(1)
+        ->and($saved[0])->toMatchArray([
+            'type' => 'stat',
+            'label' => 'Paid orders',
+            'description' => 'Completed sales only',
+            'span' => 4,
+            'color' => 'success',
+            'icon' => 'heroicon-m-check-circle',
+            'filters' => [['column' => 'status', 'operator' => 'equals', 'value' => 'paid']],
+        ])
+        ->and($saved[0]['filters'][0])->not->toHaveKey('value_select');
+
+    // Edit that single widget in place.
+    $page = Livewire::test(OrderInsights::class);
+    $key = $page->instance()->getDashboardMounts()[0]['key'];
+
+    $page->callAction('editWidget', data: [
+        'type' => 'stat',
+        'label' => 'Confirmed orders',
+        'span' => 6,
+        'aggregate' => 'count',
+    ], arguments: ['key' => $key])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Confirmed orders']);
+
+    // Resize directly from the card toolbar.
+    $page = Livewire::test(OrderInsights::class);
+    $key = $page->instance()->getDashboardMounts()[0]['key'];
+    $page->call('resizeWidget', $key, 3);
+    expect(InsightDashboard::query()->value('widgets')[0]['span'])->toBe(3);
+
+    // Duplicate directly from the card toolbar.
+    $page = Livewire::test(OrderInsights::class);
+    $key = $page->instance()->getDashboardMounts()[0]['key'];
+    $page->call('duplicateWidget', $key);
+    expect(savedLabels())->toBe(['Confirmed orders', 'Confirmed orders (copy)']);
+
+    // Remove one widget directly from the card toolbar.
+    $page = Livewire::test(OrderInsights::class);
+    $copyKey = $page->instance()->getDashboardMounts()[1]['key'];
+    $page->callAction('deleteWidget', arguments: ['key' => $copyKey])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Confirmed orders']);
+});
+
+it('forbids single-widget mutations without manage rights', function () {
+    signIn(admin: false);
+    dashboard([statWidget('Orders')]);
+
+    $key = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts()[0]['key'];
+
+    Livewire::test(OrderInsights::class)->call('duplicateWidget', $key)->assertForbidden();
+    Livewire::test(OrderInsights::class)->call('resizeWidget', $key, 12)->assertForbidden();
+
+    expect(savedLabels())->toBe(['Orders'])
+        ->and(InsightDashboard::query()->value('widgets')[0]['span'])->toBe(3);
+});
+
+it('skips widgets whose filters reference an excluded column', function () {
+    signIn();
+    dashboard([
+        statWidget('Visible'),
+        statWidget('Filtered by channel', [
+            'filters' => [['column' => 'channel', 'operator' => 'equals', 'value' => 'web']],
+        ]),
+    ]);
+
+    $mounts = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts();
+
+    expect(array_column($mounts, 'label'))->toBe(['Visible']);
+});
+
+it('renders card action toolbars only for managers', function (bool $admin) {
+    signIn($admin);
+    dashboard([statWidget('Orders')]);
+
+    $response = $this->get(OrderInsights::getUrl())->assertOk();
+
+    $admin
+        ? $response->assertSee('aria-label="Widget actions"', escape: false)
+        : $response->assertDontSee('aria-label="Widget actions"', escape: false);
+})->with(['manager' => true, 'viewer' => false]);
+
+it('lets managers toggle viewer preview mode to hide toolbars and drag handles', function () {
+    signIn();
+    dashboard([statWidget('Orders')]);
+
+    Livewire::test(OrderInsights::class)
+        ->assertActionVisible('togglePreview')
+        ->assertActionVisible('addWidget')
+        ->assertSee('aria-label="Widget actions"', escape: false)
+        ->callAction('togglePreview')
+        ->assertSet('previewing', true)
+        ->assertActionHidden('addWidget')
+        ->assertActionHidden('editDashboard')
+        ->assertDontSee('aria-label="Widget actions"', escape: false)
+        ->assertDontSee('x-sortable-item', escape: false)
+        ->callAction('togglePreview')
+        ->assertSet('previewing', false)
+        ->assertActionVisible('addWidget')
+        ->assertSee('aria-label="Widget actions"', escape: false);
+});
+
+it('hides the preview toggle from viewers', function () {
+    signIn(admin: false);
+    dashboard([statWidget('Orders')]);
+
+    Livewire::test(OrderInsights::class)->assertActionHidden('togglePreview');
 });

@@ -72,3 +72,46 @@ it('formats money axes and tooltips in the browser', function () {
     expect($options)->toBeInstanceOf(RawJs::class)
         ->and((string) $options)->toContain("currency: 'PHP'");
 });
+
+it('renders stat notes, filters, custom colors and icons', function () {
+    order(['status' => 'paid']);
+    order(['status' => 'pending']);
+
+    Livewire::test(InsightStat::class, [
+        'config' => [
+            'label' => 'Paid orders',
+            'description' => 'Settled only',
+            'aggregate' => 'count',
+            'color' => 'success',
+            'icon' => 'heroicon-m-check-circle',
+            'filters' => [['column' => 'status', 'operator' => 'equals', 'value' => 'paid']],
+        ],
+        'resource' => OrderResource::class,
+    ])
+        ->assertSee('Paid orders')
+        ->assertSee('1')
+        ->assertSee('Settled only · All time · Status is Paid');
+});
+
+it('applies accent colors and filters on charts', function () {
+    order(['status' => 'paid', 'total' => 100]);
+    order(['status' => 'pending', 'total' => 50]);
+
+    $chart = widget(InsightChart::class, [
+        'label' => 'Paid totals',
+        'description' => 'Approved only',
+        'chart' => 'bar',
+        'color' => 'danger',
+        'aggregate' => 'sum',
+        'column' => 'total',
+        'group_by' => 'status',
+        'filters' => [['column' => 'status', 'operator' => 'equals', 'value' => 'paid']],
+    ]);
+
+    $data = invoke($chart, 'getData');
+
+    expect($data['labels'])->toBe(['Paid'])
+        ->and($data['datasets'][0]['data'])->toBe([100.0])
+        ->and($data['datasets'][0]['borderColor'])->toBe('#ef4444')
+        ->and($chart->getDescription())->toBe('Approved only · All time · Status is Paid');
+});
