@@ -7,11 +7,13 @@ use CarlJanzell\FilamentInsights\Models\InsightDashboard;
 use CarlJanzell\FilamentInsights\Support\InsightQuery;
 use CarlJanzell\FilamentInsights\Widgets\InsightChart;
 use CarlJanzell\FilamentInsights\Widgets\InsightStat;
+use CarlJanzell\FilamentInsights\Widgets\InsightTable;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Resources\Pages\Page;
 use Illuminate\Support\HtmlString;
@@ -97,38 +99,64 @@ abstract class InsightsPage extends Page
     }
 
     /**
-     * What the view mounts, one entry per widget the viewer may see.
+     * What the view mounts, one entry per widget or section the viewer may see.
      *
-     * @return list<array{class: class-string, props: array<string, mixed>, key: string, span: int, label: string, color: ?string}>
+     * @return list<array<string, mixed>>
      */
     public function getDashboardMounts(): array
     {
-        $custom = FilamentInsightsPlugin::get()->getWidgets();
+        $plugin = FilamentInsightsPlugin::get();
+        $custom = $plugin->getWidgets();
+        $manageable = $plugin->isManageable();
         $excluded = static::getExcludedColumns();
         $keys = static::widgetKeys($this->dashboardWidgets());
 
-        return collect($this->dashboardWidgets())
+        $mounts = collect($this->dashboardWidgets())
             ->map(function (array $widget, int $index) use ($custom, $excluded, $keys): ?array {
-                if (array_intersect(InsightQuery::columnsIn($widget), $excluded)) {
-                    return null;
-                }
-
-                $class = match ($widget['type'] ?? null) {
-                    'stat' => InsightStat::class,
-                    'chart' => InsightChart::class,
-                    'widget' => in_array($widget['widget'] ?? null, $custom, true) && $widget['widget']::canView() ? $widget['widget'] : null,
-                    default => null,
-                };
+                $type = $widget['type'] ?? null;
 
                 $color = is_string($widget['color'] ?? null) && array_key_exists($widget['color'], InsightStat::COLORS)
                     ? $widget['color']
                     : null;
 
+                if ($type === 'section') {
+                    $icon = is_string($widget['icon'] ?? null) && array_key_exists($widget['icon'], InsightStat::ICONS)
+                        ? $widget['icon']
+                        : null;
+
+                    return [
+                        'type' => 'section',
+                        'class' => null,
+                        'props' => [],
+                        'key' => $keys[$index],
+                        'span' => 12,
+                        'label' => (string) ($widget['label'] ?? ''),
+                        'description' => trim((string) ($widget['description'] ?? '')),
+                        'icon' => $icon,
+                        'color' => $color,
+                        'collapsible' => (bool) ($widget['collapsible'] ?? false),
+                        'collapsed' => (bool) ($widget['collapsible'] ?? false) && (bool) ($widget['collapsed'] ?? false),
+                    ];
+                }
+
+                if (array_intersect(InsightQuery::columnsIn($widget), $excluded)) {
+                    return null;
+                }
+
+                $class = match ($type) {
+                    'stat' => InsightStat::class,
+                    'chart' => InsightChart::class,
+                    'table' => InsightTable::class,
+                    'widget' => in_array($widget['widget'] ?? null, $custom, true) && $widget['widget']::canView() ? $widget['widget'] : null,
+                    default => null,
+                };
+
                 return $class === null ? null : [
+                    'type' => (string) $type,
                     'class' => $class,
                     'props' => [
                         ...$class::getDefaultProperties(),
-                        ...($widget['type'] === 'widget' ? [] : ['config' => $widget, 'resource' => static::getResource()]),
+                        ...($type === 'widget' ? [] : ['config' => $widget, 'resource' => static::getResource()]),
                     ],
                     'key' => $keys[$index],
                     'span' => (int) ($widget['span'] ?? 6),
@@ -139,6 +167,28 @@ abstract class InsightsPage extends Page
             ->filter()
             ->values()
             ->all();
+
+        if ($manageable) {
+            return $mounts;
+        }
+
+        // Hide empty sections from non-manager viewers (e.g., when all child widgets are excluded/hidden).
+        $filtered = [];
+        $count = count($mounts);
+
+        foreach ($mounts as $i => $mount) {
+            if ($mount['type'] === 'section') {
+                $next = $mounts[$i + 1] ?? null;
+
+                if ($next === null || $next['type'] === 'section') {
+                    continue;
+                }
+            }
+
+            $filtered[] = $mount;
+        }
+
+        return $filtered;
     }
 
     /**
@@ -176,7 +226,7 @@ abstract class InsightsPage extends Page
     }
 
     /**
-     * Duplicates a single widget right after itself on the dashboard.
+     * Duplicates a single widget or section right after itself on the dashboard.
      */
     public function duplicateWidget(string $key): void
     {
@@ -196,7 +246,9 @@ abstract class InsightsPage extends Page
 
         array_splice($widgets, $index + 1, 0, [$copy]);
 
-        $this->persistWidgets($widgets, 'Widget duplicated');
+        $toast = ($copy['type'] ?? null) === 'section' ? 'Section duplicated' : 'Widget duplicated';
+
+        $this->persistWidgets($widgets, $toast);
     }
 
     /**
@@ -219,19 +271,30 @@ abstract class InsightsPage extends Page
             return;
         }
 
+        if (($widgets[$index]['type'] ?? null) === 'section') {
+            return;
+        }
+
         $widgets[$index]['span'] = $span;
 
         $this->persistWidgets($widgets, 'Widget width updated');
     }
 
     /**
-     * Edit one widget directly from its card toolbar.
+     * Edit one widget or section directly from its toolbar.
      */
     public function editWidgetAction(): Action
     {
         return Action::make('editWidget')
             ->label('Edit widget')
-            ->modalHeading('Edit widget')
+            ->modalHeading(function (array $arguments): string {
+                $widgets = $this->dashboardWidgets();
+                $index = $this->findWidgetIndex($widgets, (string) ($arguments['key'] ?? ''));
+
+                return ($index !== null && ($widgets[$index]['type'] ?? null) === 'section')
+                    ? 'Edit section'
+                    : 'Edit widget';
+            })
             ->modalSubmitActionLabel('Save changes')
             ->slideOver()
             ->modalWidth('2xl')
@@ -240,9 +303,22 @@ abstract class InsightsPage extends Page
                 $widgets = $this->dashboardWidgets();
                 $index = $this->findWidgetIndex($widgets, (string) ($arguments['key'] ?? ''));
 
-                return $index === null ? [] : $this->hydrateWidget($widgets[$index]);
+                if ($index === null) {
+                    return [];
+                }
+
+                $state = $this->hydrateWidget($widgets[$index]);
+
+                if (($widgets[$index]['type'] ?? null) !== 'section') {
+                    $state['section_key'] = $this->sectionKeyForWidget($widgets, $index);
+                }
+
+                return $state;
             })
-            ->form(fn (): array => $this->widgetFields())
+            ->form(fn (): array => [
+                ...$this->sectionPlacementFields(forEdit: true),
+                ...$this->widgetFields(includeSection: true),
+            ])
             ->action(function (array $data, array $arguments): void {
                 abort_unless(FilamentInsightsPlugin::get()->isManageable(), 403);
 
@@ -255,14 +331,36 @@ abstract class InsightsPage extends Page
                     return;
                 }
 
-                $widgets[$index] = $this->normalizeWidget($data);
+                $oldSectionKey = ($widgets[$index]['type'] ?? null) === 'section'
+                    ? null
+                    : $this->sectionKeyForWidget($widgets, $index);
+                $updated = $this->normalizeWidget($data);
+                $hasSectionPicker = array_key_exists('section_key', $data) && ($updated['type'] ?? null) !== 'section';
+                $newSectionKey = filled($data['section_key'] ?? null) ? (string) $data['section_key'] : null;
 
-                $this->persistWidgets($widgets, 'Widget updated');
+                if ($hasSectionPicker && $newSectionKey !== $oldSectionKey) {
+                    array_splice($widgets, $index, 1);
+
+                    if ($newSectionKey === null) {
+                        $insertAt = $this->ungroupedInsertIndex($widgets);
+                        array_splice($widgets, $insertAt, 0, [$updated]);
+                    } elseif (($insertAt = $this->sectionInsertIndex($widgets, $newSectionKey)) !== null) {
+                        array_splice($widgets, $insertAt, 0, [$updated]);
+                    } else {
+                        $widgets[] = $updated;
+                    }
+                } else {
+                    $widgets[$index] = $updated;
+                }
+
+                $toast = ($updated['type'] ?? null) === 'section' ? 'Section updated' : 'Widget updated';
+
+                $this->persistWidgets($widgets, $toast);
             });
     }
 
     /**
-     * Remove one widget directly from its card toolbar, with confirmation.
+     * Remove one widget or section directly from its toolbar, with confirmation.
      */
     public function deleteWidgetAction(): Action
     {
@@ -270,11 +368,23 @@ abstract class InsightsPage extends Page
             ->label('Remove widget')
             ->color('danger')
             ->requiresConfirmation()
-            ->modalHeading('Remove widget')
+            ->modalHeading(function (array $arguments): string {
+                $widgets = $this->dashboardWidgets();
+                $index = $this->findWidgetIndex($widgets, (string) ($arguments['key'] ?? ''));
+
+                return ($index !== null && ($widgets[$index]['type'] ?? null) === 'section')
+                    ? 'Remove section'
+                    : 'Remove widget';
+            })
             ->modalDescription(function (array $arguments): string {
                 $widgets = $this->dashboardWidgets();
                 $index = $this->findWidgetIndex($widgets, (string) ($arguments['key'] ?? ''));
-                $label = $index !== null ? ($widgets[$index]['label'] ?? 'this widget') : 'this widget';
+                $widget = $index !== null ? $widgets[$index] : null;
+                $label = $widget['label'] ?? 'this widget';
+
+                if (($widget['type'] ?? null) === 'section') {
+                    return "Remove the \"{$label}\" section heading? Widgets underneath it will stay on the dashboard.";
+                }
 
                 return "Remove \"{$label}\" from this dashboard? You can add it again anytime.";
             })
@@ -292,9 +402,10 @@ abstract class InsightsPage extends Page
                     return;
                 }
 
+                $wasSection = ($widgets[$index]['type'] ?? null) === 'section';
                 array_splice($widgets, $index, 1);
 
-                $this->persistWidgets($widgets, 'Widget removed');
+                $this->persistWidgets($widgets, $wasSection ? 'Section removed' : 'Widget removed');
             });
     }
 
@@ -330,6 +441,33 @@ abstract class InsightsPage extends Page
                     $this->previewing = ! $this->previewing;
                 }),
 
+            Action::make('addSection')
+                ->label('Add section')
+                ->icon('heroicon-o-rectangle-group')
+                ->color('gray')
+                ->visible(fn (): bool => FilamentInsightsPlugin::get()->isManageable() && ! $this->previewing)
+                ->slideOver()
+                ->modalHeading('Add a dashboard section')
+                ->modalDescription('Group related widgets under a clear title and short description.')
+                ->modalWidth('lg')
+                ->modalSubmitActionLabel('Add section')
+                ->form(fn (): array => $this->sectionOnlyFields())
+                ->action(function (array $data): void {
+                    abort_unless(FilamentInsightsPlugin::get()->isManageable(), 403);
+
+                    $placement = (string) ($data['placement'] ?? 'bottom');
+                    $section = $this->normalizeWidget(['type' => 'section', ...$data]);
+                    $widgets = $this->dashboardWidgets();
+
+                    if ($placement === 'top') {
+                        array_unshift($widgets, $section);
+                    } else {
+                        $widgets[] = $section;
+                    }
+
+                    $this->persistWidgets($widgets, 'Section added');
+                }),
+
             Action::make('addWidget')
                 ->label('Add widget')
                 ->icon('heroicon-o-plus')
@@ -340,15 +478,28 @@ abstract class InsightsPage extends Page
                 ->modalDescription('Pick a quick-start style or customize every option below.')
                 ->modalWidth('2xl')
                 ->modalSubmitActionLabel('Add to dashboard')
+                ->fillForm(function (array $arguments): array {
+                    $sectionKey = $arguments['section_key'] ?? null;
+
+                    return filled($sectionKey) ? ['section_key' => (string) $sectionKey] : [];
+                })
                 ->form(fn (): array => [
                     ...$this->quickStartFields(),
+                    ...$this->sectionPlacementFields(),
                     ...$this->widgetFields(),
                 ])
-                ->action(function (array $data): void {
+                ->action(function (array $data, array $arguments): void {
                     abort_unless(FilamentInsightsPlugin::get()->isManageable(), 403);
 
+                    $targetSection = $data['section_key'] ?? ($arguments['section_key'] ?? null);
+                    $widget = $this->normalizeWidget($data);
                     $widgets = $this->dashboardWidgets();
-                    $widgets[] = $this->normalizeWidget($data);
+
+                    if (filled($targetSection) && ($insertAt = $this->sectionInsertIndex($widgets, (string) $targetSection)) !== null) {
+                        array_splice($widgets, $insertAt, 0, [$widget]);
+                    } else {
+                        $widgets[] = $widget;
+                    }
 
                     $this->persistWidgets($widgets, 'Widget added');
                 }),
@@ -368,13 +519,13 @@ abstract class InsightsPage extends Page
                 ->form([
                     Repeater::make('widgets')
                         ->hiddenLabel()
-                        ->schema($this->widgetFields())
+                        ->schema($this->widgetFields(includeSection: true))
                         ->columns(['default' => 1, 'sm' => 2])
                         ->collapsible()
                         ->collapsed()
                         ->cloneable()
                         ->itemLabel(fn (array $state): string => $this->repeaterItemLabel($state))
-                        ->addActionLabel('Add widget')
+                        ->addActionLabel('Add item')
                         ->defaultItems(0),
                 ])
                 ->action(function (array $data): void {
@@ -387,6 +538,99 @@ abstract class InsightsPage extends Page
 
                     $this->persistWidgets($widgets, 'Dashboard saved');
                 }),
+        ];
+    }
+
+    /**
+     * Form fields for the dedicated "Add section" slide-over.
+     *
+     * @return array<int, mixed>
+     */
+    protected function sectionOnlyFields(): array
+    {
+        $hasWidgets = filled($this->dashboardWidgets());
+
+        return [
+            TextInput::make('label')
+                ->label('Section title')
+                ->placeholder('e.g., Overview, Application Breakdown, Errors & Alerts')
+                ->required()
+                ->maxLength(80),
+
+            TextInput::make('description')
+                ->label('Short description (optional)')
+                ->placeholder('Explain what the widgets in this section show')
+                ->maxLength(200),
+
+            Select::make('icon')
+                ->label('Icon (optional)')
+                ->options(InsightStat::ICONS)
+                ->in(array_keys(InsightStat::ICONS))
+                ->native(false)
+                ->searchable()
+                ->placeholder('No icon'),
+
+            ToggleButtons::make('color')
+                ->label('Accent color')
+                ->helperText('Optional subtle accent for the section icon and divider.')
+                ->options(InsightStat::COLORS)
+                ->colors([
+                    'primary' => 'primary',
+                    'info' => 'info',
+                    'success' => 'success',
+                    'warning' => 'warning',
+                    'danger' => 'danger',
+                    'gray' => 'gray',
+                ])
+                ->inline(),
+
+            Toggle::make('collapsible')
+                ->label('Allow viewers to collapse this section')
+                ->default(false)
+                ->live(),
+
+            Toggle::make('collapsed')
+                ->label('Start collapsed by default')
+                ->default(false)
+                ->visible(fn ($get): bool => (bool) $get('collapsible')),
+
+            ToggleButtons::make('placement')
+                ->label('Place section at')
+                ->helperText('Bottom starts an empty section you can drag widgets into; Top wraps existing widgets.')
+                ->options([
+                    'top' => 'Top of dashboard',
+                    'bottom' => 'Bottom of dashboard',
+                ])
+                ->default('bottom')
+                ->grouped()
+                ->visible($hasWidgets),
+        ];
+    }
+
+    /**
+     * Optional "Section" picker shown inside "Add widget" and "Edit widget" when sections exist.
+     *
+     * @return array<int, mixed>
+     */
+    protected function sectionPlacementFields(bool $forEdit = false): array
+    {
+        $sections = $this->sectionOptions();
+
+        if ($sections === []) {
+            return [];
+        }
+
+        return [
+            Select::make('section_key')
+                ->label($forEdit ? 'Section' : 'Place in section')
+                ->options($sections)
+                ->native(false)
+                ->placeholder($forEdit ? 'None (outside sections)' : 'End of dashboard')
+                ->helperText($forEdit
+                    ? 'Move this widget into a section, or leave empty to place it outside sections.'
+                    : 'Drops the new widget directly inside the chosen section.')
+                ->visible(fn ($get): bool => $get('type') !== 'section')
+                ->columnSpanFull(),
         ];
     }
 
@@ -413,12 +657,14 @@ abstract class InsightsPage extends Page
                     'trend' => $firstDate ? 'Trend over time' : null,
                     'breakdown' => $firstGroup ? 'Top breakdown' : null,
                     'share' => $firstGroup ? 'Proportional split' : null,
+                    'table' => $firstGroup ? 'Summary table' : null,
                 ]))
                 ->icons([
                     'kpi' => 'heroicon-m-hashtag',
                     'trend' => 'heroicon-m-presentation-chart-line',
                     'breakdown' => 'heroicon-m-chart-bar',
                     'share' => 'heroicon-m-chart-pie',
+                    'table' => 'heroicon-m-table-cells',
                 ])
                 ->inline()
                 ->dehydrated(false)
@@ -476,6 +722,16 @@ abstract class InsightsPage extends Page
                                 $set('label', "{$modelPlural} by {$groups[$firstGroup]}");
                             }
                         })(),
+                        'table' => (function () use ($set, $firstGroup, $groups, $modelPlural, $hasLabel): void {
+                            $set('type', 'table');
+                            $set('span', 6);
+                            $set('aggregate', 'count');
+                            $set('group_by', $firstGroup);
+                            $set('limit', 10);
+                            if (! $hasLabel && $firstGroup !== null) {
+                                $set('label', "{$modelPlural} by {$groups[$firstGroup]}");
+                            }
+                        })(),
                         default => null,
                     };
                 })
@@ -486,7 +742,7 @@ abstract class InsightsPage extends Page
     /**
      * @return array<int, mixed>
      */
-    protected function widgetFields(): array
+    protected function widgetFields(bool $includeSection = false): array
     {
         $insights = new InsightQuery(static::getResource(), static::getExcludedColumns());
         $numeric = $insights->options('numeric');
@@ -500,9 +756,11 @@ abstract class InsightsPage extends Page
 
         $currency = FilamentInsightsPlugin::get()->getCurrency();
 
-        $isData = fn ($get): bool => in_array($get('type'), ['stat', 'chart'], true);
+        $isData = fn ($get): bool => in_array($get('type'), ['stat', 'chart', 'table'], true);
         $isStat = fn ($get): bool => $get('type') === 'stat';
         $isChart = fn ($get): bool => $get('type') === 'chart';
+        $isGrouped = fn ($get): bool => in_array($get('type'), ['chart', 'table'], true);
+        $isSection = fn ($get): bool => $get('type') === 'section';
         $isTimeline = fn ($get): bool => str_starts_with((string) $get('group_by'), '@');
         $isRoundChart = fn ($get): bool => $isChart($get) && in_array($get('chart'), ['pie', 'doughnut'], true);
         $needsColumn = fn ($get): bool => $isData($get) && $get('aggregate') !== 'count';
@@ -516,8 +774,20 @@ abstract class InsightsPage extends Page
 
             ToggleButtons::make('type')
                 ->label('Widget type')
-                ->options(array_filter(['stat' => 'KPI Stat', 'chart' => 'Chart', 'widget' => $custom ? 'Custom widget' : null]))
-                ->icons(['stat' => 'heroicon-m-hashtag', 'chart' => 'heroicon-m-chart-bar', 'widget' => 'heroicon-m-puzzle-piece'])
+                ->options(array_filter([
+                    'stat' => 'KPI Stat',
+                    'chart' => 'Chart',
+                    'table' => 'Table',
+                    'section' => $includeSection ? 'Section' : null,
+                    'widget' => $custom ? 'Custom widget' : null,
+                ]))
+                ->icons([
+                    'stat' => 'heroicon-m-hashtag',
+                    'chart' => 'heroicon-m-chart-bar',
+                    'table' => 'heroicon-m-table-cells',
+                    'section' => 'heroicon-m-rectangle-group',
+                    'widget' => 'heroicon-m-puzzle-piece',
+                ])
                 ->default('stat')
                 ->grouped()
                 ->required()
@@ -525,12 +795,13 @@ abstract class InsightsPage extends Page
                 ->columnSpanFull(),
 
             TextInput::make('label')
-                ->label('Title')
-                ->placeholder('e.g., Errors this week')
-                ->helperText('Shown at the top of the card.')
+                ->label(fn ($get): string => $isSection($get) ? 'Section title' : 'Title')
+                ->placeholder(fn ($get): string => $isSection($get) ? 'e.g., Overview' : 'e.g., Errors this week')
+                ->helperText(fn ($get): string => $isSection($get) ? 'Heading shown above this group of widgets.' : 'Shown at the top of the card.')
                 ->required()
                 ->maxLength(80)
-                ->live(onBlur: true),
+                ->live(onBlur: true)
+                ->columnSpan(fn ($get): int|string => $isSection($get) ? 'full' : 1),
 
             ToggleButtons::make('span')
                 ->label('Card width')
@@ -538,14 +809,28 @@ abstract class InsightsPage extends Page
                 ->default(6)
                 ->grouped()
                 ->required()
-                ->live(),
+                ->live()
+                ->visible(fn ($get): bool => ! $isSection($get)),
 
             TextInput::make('description')
-                ->label('Subtitle / note (optional)')
-                ->placeholder('Short explanation for viewers, e.g., Production records only')
-                ->maxLength(140)
-                ->visible($isData)
+                ->label(fn ($get): string => $isSection($get) ? 'Short description (optional)' : 'Subtitle / note (optional)')
+                ->placeholder(fn ($get): string => $isSection($get)
+                    ? 'Explain what the widgets in this section cover'
+                    : 'Short explanation for viewers, e.g., Production records only')
+                ->maxLength(200)
+                ->visible(fn ($get): bool => $isData($get) || $isSection($get))
                 ->columnSpanFull(),
+
+            Toggle::make('collapsible')
+                ->label('Allow viewers to collapse this section')
+                ->default(false)
+                ->live()
+                ->visible($isSection),
+
+            Toggle::make('collapsed')
+                ->label('Start collapsed by default')
+                ->default(false)
+                ->visible(fn ($get): bool => $isSection($get) && (bool) $get('collapsible')),
 
             Select::make('widget')
                 ->label('Custom widget')
@@ -625,7 +910,7 @@ abstract class InsightsPage extends Page
                 ->helperText('Choose a time unit for trends, or a field for a breakdown.')
                 ->required()
                 ->live()
-                ->visible($isChart),
+                ->visible($isGrouped),
 
             TextInput::make('limit')
                 ->label('Show top')
@@ -636,7 +921,13 @@ abstract class InsightsPage extends Page
                 ->maxValue(50)
                 ->default(10)
                 ->live(onBlur: true)
-                ->visible(fn ($get): bool => $isChart($get) && filled($get('group_by')) && ! $isTimeline($get)),
+                ->visible(fn ($get): bool => $isGrouped($get) && filled($get('group_by')) && ! $isTimeline($get)),
+
+            Toggle::make('show_total')
+                ->label('Show total row')
+                ->helperText('Displays a summary Total row at the bottom of the table.')
+                ->default(true)
+                ->visible(fn ($get): bool => $get('type') === 'table' && in_array($get('aggregate'), ['count', 'sum', null, ''], true)),
 
             Select::make('date_column')
                 ->label('Date field')
@@ -646,7 +937,7 @@ abstract class InsightsPage extends Page
                 ->searchable()
                 ->placeholder('None (all time)')
                 ->helperText('Pick a date field to enable time ranges or trends.')
-                ->required(fn ($get): bool => $isChart($get) && $isTimeline($get))
+                ->required(fn ($get): bool => $isGrouped($get) && $isTimeline($get))
                 ->live()
                 ->visible($isData),
 
@@ -658,7 +949,7 @@ abstract class InsightsPage extends Page
                 ->placeholder('All time')
                 ->helperText(fn ($get): string => $isStat($get)
                     ? 'Adds a % comparison against the previous period and a sparkline.'
-                    : 'Limits the chart to this window.')
+                    : 'Limits the widget to this window.')
                 ->live()
                 ->visible(fn ($get): bool => $isData($get) && filled($get('date_column'))),
 
@@ -676,7 +967,7 @@ abstract class InsightsPage extends Page
                 ])
                 ->inline()
                 ->live()
-                ->visible(fn ($get): bool => $isData($get) && ! $isRoundChart($get))
+                ->visible(fn ($get): bool => ($isData($get) && ! $isRoundChart($get)) || $isSection($get))
                 ->columnSpanFull(),
 
             Select::make('icon')
@@ -686,7 +977,7 @@ abstract class InsightsPage extends Page
                 ->native(false)
                 ->searchable()
                 ->placeholder('No icon')
-                ->visible($isStat)
+                ->visible(fn ($get): bool => $isStat($get) || $isSection($get))
                 ->columnSpanFull(),
 
             Repeater::make('filters')
@@ -780,7 +1071,13 @@ abstract class InsightsPage extends Page
         $spanLabel = self::SPANS[(int) ($get('span') ?? 6)] ?? '½';
         $tip = null;
 
-        if ($type === 'widget') {
+        if ($type === 'section') {
+            $title = filled($get('label')) ? (string) $get('label') : 'Untitled section';
+            $mode = (bool) $get('collapsible')
+                ? ((bool) $get('collapsed') ? 'Collapsible (starts collapsed)' : 'Collapsible')
+                : 'Always open';
+            $summary = '<strong>Section</strong> — '.e($title).' · '.e($mode).' · Full width';
+        } elseif ($type === 'widget') {
             $widgetClass = (string) ($get('widget') ?? '');
             $widgetName = $custom[$widgetClass] ?? 'a custom widget';
             $summary = 'Custom widget: <strong>'.e($widgetName).'</strong> · Width: '.e($spanLabel);
@@ -795,27 +1092,29 @@ abstract class InsightsPage extends Page
 
             $parts = [];
 
-            if ($type === 'chart') {
-                $chartType = Str::ucfirst((string) ($get('chart') ?? 'bar'));
+            if (in_array($type, ['chart', 'table'], true)) {
+                $prefix = $type === 'table'
+                    ? 'Summary table'
+                    : Str::ucfirst((string) ($get('chart') ?? 'bar')).' chart';
                 $group = (string) ($get('group_by') ?? '');
                 $isTimeline = str_starts_with($group, '@');
 
                 if ($isTimeline) {
                     $unitLabel = strtolower($timeline[$group] ?? substr($group, 1));
-                    $parts[] = '<strong>'.e($chartType).' chart</strong> — '.e($metricText).' per <strong>'.e($unitLabel).'</strong>';
+                    $parts[] = '<strong>'.e($prefix).'</strong> — '.e($metricText).' per <strong>'.e($unitLabel).'</strong>';
 
-                    if (in_array($get('chart'), ['pie', 'doughnut'], true)) {
+                    if ($type === 'chart' && in_array($get('chart'), ['pie', 'doughnut'], true)) {
                         $tip = 'Tip: Pie and doughnut charts work best for categories — try Line or Bar for trends over time.';
                     }
                 } elseif ($group !== '') {
                     $limit = max(1, min(50, (int) ($get('limit') ?: 10)));
-                    $parts[] = '<strong>'.e($chartType).' chart</strong> — '.e($metricText).' by <strong>'.e($insights->labelFor($group))."</strong> (top {$limit})";
+                    $parts[] = '<strong>'.e($prefix).'</strong> — '.e($metricText).' by <strong>'.e($insights->labelFor($group))."</strong> (top {$limit})";
 
-                    if ($get('chart') === 'line') {
-                        $tip = 'Tip: Line charts work best for trends over time — try Bar, Pie, or Doughnut for categories.';
+                    if ($type === 'chart' && $get('chart') === 'line') {
+                        $tip = 'Tip: Line charts work best for trends over time — try Bar, Pie, Doughnut, or Table for categories.';
                     }
                 } else {
-                    $parts[] = '<strong>'.e($chartType).' chart</strong> — '.e($metricText);
+                    $parts[] = '<strong>'.e($prefix).'</strong> — '.e($metricText);
                 }
             } else {
                 $parts[] = '<strong>KPI Stat</strong> — '.e($metricText);
@@ -858,14 +1157,137 @@ abstract class InsightsPage extends Page
     protected function repeaterItemLabel(array $state): string
     {
         $title = filled($state['label'] ?? null) ? (string) $state['label'] : 'Untitled widget';
-        $kind = match ($state['type'] ?? 'stat') {
+        $type = $state['type'] ?? 'stat';
+
+        if ($type === 'section') {
+            return "{$title} · Section";
+        }
+
+        $kind = match ($type) {
             'chart' => Str::ucfirst((string) ($state['chart'] ?? 'bar')).' chart',
+            'table' => 'Table',
             'widget' => 'Custom widget',
             default => 'KPI Stat',
         };
         $span = self::SPANS[(int) ($state['span'] ?? 6)] ?? '½';
 
         return "{$title} · {$kind} · {$span}";
+    }
+
+    /**
+     * Section keys => labels for the "Place in section" picker.
+     *
+     * @return array<string, string>
+     */
+    protected function sectionOptions(): array
+    {
+        $widgets = $this->dashboardWidgets();
+        $keys = static::widgetKeys($widgets);
+        $options = [];
+
+        foreach ($widgets as $index => $widget) {
+            if (($widget['type'] ?? null) === 'section') {
+                $options[$keys[$index]] = filled($widget['label'] ?? null)
+                    ? (string) $widget['label']
+                    : 'Untitled section';
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Returns the array index right after the last widget belonging to `$sectionKey`
+     * (immediately before the next section, or at the end of the array).
+     *
+     * @param  list<array<string, mixed>>  $widgets
+     */
+    protected function sectionInsertIndex(array $widgets, string $sectionKey): ?int
+    {
+        $start = $this->findWidgetIndex($widgets, $sectionKey);
+
+        if ($start === null || ($widgets[$start]['type'] ?? null) !== 'section') {
+            return null;
+        }
+
+        $count = count($widgets);
+        for ($i = $start + 1; $i < $count; $i++) {
+            if (($widgets[$i]['type'] ?? null) === 'section') {
+                return $i;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Finds the section key that owns the widget at `$index`, or null if it sits above all sections.
+     *
+     * @param  list<array<string, mixed>>  $widgets
+     */
+    protected function sectionKeyForWidget(array $widgets, int $index): ?string
+    {
+        $keys = static::widgetKeys($widgets);
+
+        for ($i = $index - 1; $i >= 0; $i--) {
+            if (($widgets[$i]['type'] ?? null) === 'section') {
+                return $keys[$i];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns the index right before the first section (end of the ungrouped area).
+     *
+     * @param  list<array<string, mixed>>  $widgets
+     */
+    protected function ungroupedInsertIndex(array $widgets): int
+    {
+        foreach ($widgets as $index => $widget) {
+            if (($widget['type'] ?? null) === 'section') {
+                return $index;
+            }
+        }
+
+        return count($widgets);
+    }
+
+    /**
+     * Groups the flat mounted list into visual blocks: an optional leading ungrouped block
+     * followed by boxed sections, each holding the widgets that belong to it.
+     *
+     * @return list<array{section: ?array<string, mixed>, items: list<array<string, mixed>>}>
+     */
+    public function getDashboardBlocks(): array
+    {
+        $blocks = [];
+        $current = null;
+
+        foreach ($this->getDashboardMounts() as $mount) {
+            if (($mount['type'] ?? null) === 'section') {
+                if ($current !== null) {
+                    $blocks[] = $current;
+                }
+
+                $current = ['section' => $mount, 'items' => []];
+
+                continue;
+            }
+
+            if ($current === null) {
+                $current = ['section' => null, 'items' => []];
+            }
+
+            $current['items'][] = $mount;
+        }
+
+        if ($current !== null) {
+            $blocks[] = $current;
+        }
+
+        return $blocks;
     }
 
     /**
@@ -906,7 +1328,29 @@ abstract class InsightsPage extends Page
      */
     protected function normalizeWidget(array $widget): array
     {
-        unset($widget['preset'], $widget['preview']);
+        unset($widget['preset'], $widget['preview'], $widget['section_key'], $widget['placement']);
+
+        if (($widget['type'] ?? null) === 'section') {
+            $collapsible = (bool) ($widget['collapsible'] ?? false);
+
+            return array_filter([
+                'type' => 'section',
+                'label' => trim((string) ($widget['label'] ?? '')),
+                'description' => filled($widget['description'] ?? null) ? trim((string) $widget['description']) : null,
+                'icon' => filled($widget['icon'] ?? null) ? (string) $widget['icon'] : null,
+                'color' => filled($widget['color'] ?? null) ? (string) $widget['color'] : null,
+                'collapsible' => $collapsible ?: null,
+                'collapsed' => ($collapsible && (bool) ($widget['collapsed'] ?? false)) ? true : null,
+            ], fn (mixed $value): bool => $value !== null);
+        }
+
+        unset($widget['collapsible'], $widget['collapsed']);
+
+        if (($widget['type'] ?? null) === 'table') {
+            $widget['show_total'] = (bool) ($widget['show_total'] ?? true);
+        } else {
+            unset($widget['show_total']);
+        }
 
         $filters = $this->normalizeFilters($widget['filters'] ?? []);
         if ($filters === []) {

@@ -7,6 +7,7 @@ use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrderResource;
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrdersOverview;
 use CarlJanzell\FilamentInsights\Widgets\InsightChart;
 use CarlJanzell\FilamentInsights\Widgets\InsightStat;
+use CarlJanzell\FilamentInsights\Widgets\InsightTable;
 use Filament\Support\Facades\FilamentAsset;
 use Livewire\Livewire;
 
@@ -284,5 +285,180 @@ it('hides the preview toggle from viewers', function () {
     signIn(admin: false);
     dashboard([statWidget('Orders')]);
 
-    Livewire::test(OrderInsights::class)->assertActionHidden('togglePreview');
+    Livewire::test(OrderInsights::class)
+        ->assertActionHidden('togglePreview')
+        ->assertActionHidden('addSection');
+});
+
+it('lets managers add sections, place widgets inside them, reorder across sections, and remove sections safely', function () {
+    signIn();
+
+    // Add first section at the bottom (empty dashboard).
+    Livewire::test(OrderInsights::class)
+        ->callAction('addSection', data: [
+            'label' => 'Breakdowns',
+            'description' => 'Detailed grouped charts and tables',
+            'icon' => 'heroicon-m-chart-bar',
+            'color' => 'info',
+            'collapsible' => true,
+            'collapsed' => false,
+        ])
+        ->assertHasNoActionErrors();
+
+    // Add a second section at the top of the dashboard.
+    Livewire::test(OrderInsights::class)
+        ->callAction('addSection', data: [
+            'label' => 'Overview',
+            'description' => 'High-level KPIs',
+            'placement' => 'top',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Overview', 'Breakdowns']);
+
+    // Insert a widget directly into the "Overview" section (should land before "Breakdowns").
+    $overviewKey = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts()[0]['key'];
+
+    Livewire::test(OrderInsights::class)
+        ->callAction('addWidget', data: [
+            'type' => 'stat',
+            'label' => 'Total Orders',
+            'span' => 3,
+            'aggregate' => 'count',
+            'section_key' => $overviewKey,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Overview', 'Total Orders', 'Breakdowns']);
+
+    // Add a grouped table widget into "Breakdowns" via action argument (as clicked from section '+' button).
+    $breakdownsKey = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts()[2]['key'];
+
+    Livewire::test(OrderInsights::class)
+        ->callAction('addWidget', data: [
+            'type' => 'table',
+            'label' => 'Orders by Status',
+            'span' => 6,
+            'aggregate' => 'count',
+            'group_by' => 'status',
+            'limit' => 10,
+        ], arguments: ['section_key' => $breakdownsKey])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Overview', 'Total Orders', 'Breakdowns', 'Orders by Status']);
+
+    // Verify table widget mounts as InsightTable and sections render with titles & descriptions.
+    $mounts = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts();
+    expect($mounts[0]['type'])->toBe('section')
+        ->and($mounts[3]['class'])->toBe(InsightTable::class);
+
+    $this->get(OrderInsights::getUrl())
+        ->assertOk()
+        ->assertSee('Overview')
+        ->assertSee('High-level KPIs')
+        ->assertSee('Breakdowns')
+        ->assertSee('Detailed grouped charts and tables')
+        ->assertSee('aria-label="Section actions"', escape: false);
+
+    // Drag "Total Orders" across the section boundary into "Breakdowns".
+    $keys = array_column($mounts, 'key');
+    Livewire::test(OrderInsights::class)->call('reorderWidgets', [$keys[0], $keys[2], $keys[1], $keys[3]]);
+    expect(savedLabels())->toBe(['Overview', 'Breakdowns', 'Total Orders', 'Orders by Status']);
+
+    // Removing the "Breakdowns" section keeps its widgets on the dashboard.
+    $updatedMounts = Livewire::test(OrderInsights::class)->instance()->getDashboardMounts();
+    Livewire::test(OrderInsights::class)
+        ->callAction('deleteWidget', arguments: ['key' => $updatedMounts[1]['key']])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Overview', 'Total Orders', 'Orders by Status']);
+});
+
+it('hides empty sections from viewers while showing them to managers', function () {
+    dashboard([
+        ['type' => 'section', 'label' => 'Empty Top'],
+        ['type' => 'section', 'label' => 'Excluded Only'],
+        ['type' => 'table', 'label' => 'By Channel', 'group_by' => 'channel'],
+        ['type' => 'section', 'label' => 'Visible Section', 'description' => 'Has real widgets'],
+        statWidget('Orders'),
+        ['type' => 'section', 'label' => 'Empty Trailing'],
+    ]);
+
+    signIn(admin: true);
+    expect(array_column(Livewire::test(OrderInsights::class)->instance()->getDashboardMounts(), 'label'))
+        ->toBe(['Empty Top', 'Excluded Only', 'Visible Section', 'Orders', 'Empty Trailing']);
+
+    signIn(admin: false);
+    expect(array_column(Livewire::test(OrderInsights::class)->instance()->getDashboardMounts(), 'label'))
+        ->toBe(['Visible Section', 'Orders']);
+});
+
+it('hides section toolbars in preview mode while keeping section titles and collapse toggles', function () {
+    signIn();
+    dashboard([
+        ['type' => 'section', 'label' => 'Overview', 'description' => 'Key numbers', 'collapsible' => true],
+        statWidget('Orders'),
+    ]);
+
+    Livewire::test(OrderInsights::class)
+        ->assertSee('aria-label="Section actions"', escape: false)
+        ->assertSee('1 widget')
+        ->callAction('togglePreview')
+        ->assertDontSee('aria-label="Section actions"', escape: false)
+        ->assertDontSee('1 widget')
+        ->assertSee('Overview')
+        ->assertSee('Key numbers')
+        ->assertSee('Toggle Overview', escape: false);
+});
+
+it('groups widgets into boxed section blocks and lets managers move widgets between sections when editing', function () {
+    signIn();
+    dashboard([
+        statWidget('Ungrouped Stat'),
+        ['type' => 'section', 'label' => 'Overview', 'description' => 'Top metrics'],
+        statWidget('Revenue'),
+        ['type' => 'section', 'label' => 'Details'],
+    ]);
+
+    $page = Livewire::test(OrderInsights::class);
+    $blocks = $page->instance()->getDashboardBlocks();
+
+    expect($blocks)->toHaveCount(3)
+        ->and($blocks[0]['section'])->toBeNull()
+        ->and(array_column($blocks[0]['items'], 'label'))->toBe(['Ungrouped Stat'])
+        ->and($blocks[1]['section']['label'])->toBe('Overview')
+        ->and(array_column($blocks[1]['items'], 'label'))->toBe(['Revenue'])
+        ->and($blocks[2]['section']['label'])->toBe('Details')
+        ->and($blocks[2]['items'])->toBe([]);
+
+    // Move "Ungrouped Stat" into the "Overview" section via editWidget.
+    $ungroupedKey = $blocks[0]['items'][0]['key'];
+    $overviewKey = $blocks[1]['section']['key'];
+
+    $page->callAction('editWidget', data: [
+        'type' => 'stat',
+        'label' => 'Ungrouped Stat',
+        'span' => 3,
+        'aggregate' => 'count',
+        'section_key' => $overviewKey,
+    ], arguments: ['key' => $ungroupedKey])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Overview', 'Revenue', 'Ungrouped Stat', 'Details']);
+
+    // Move "Revenue" back outside sections (section_key = null).
+    $updatedBlocks = Livewire::test(OrderInsights::class)->instance()->getDashboardBlocks();
+    $revenueKey = $updatedBlocks[0]['items'][0]['key'];
+
+    Livewire::test(OrderInsights::class)
+        ->callAction('editWidget', data: [
+            'type' => 'stat',
+            'label' => 'Revenue',
+            'span' => 3,
+            'aggregate' => 'count',
+            'section_key' => null,
+        ], arguments: ['key' => $revenueKey])
+        ->assertHasNoActionErrors();
+
+    expect(savedLabels())->toBe(['Revenue', 'Overview', 'Ungrouped Stat', 'Details']);
 });

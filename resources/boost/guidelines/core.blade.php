@@ -76,19 +76,22 @@ Each saved widget is one entry in `insight_dashboards.widgets`. Admins build the
 
 | Key | Values | Notes |
 |---|---|---|
-| `type` | `stat`, `chart`, `widget` | Anything else is skipped. `widget` takes `widget` (a class from `widgets()`). |
-| `label` | string, max 80 | Required. Stat title or chart heading. |
-| `description` | string, max 140 | Optional subtitle/note shown on the stat or chart. |
-| `span` | `3`, `4`, `6`, `8`, `12` | Width on a 12-column grid. Default `6`. |
+| `type` | `stat`, `chart`, `table`, `section`, `widget` | Anything else is skipped. `widget` takes `widget` (a class from `widgets()`). `section` renders a full-width heading banner grouping the widgets below it until the next `section`. |
+| `label` | string, max 80 | Required. Stat title, chart/table heading, or section title. |
+| `description` | string, max 200 | Optional subtitle/note shown on the stat, chart, table, or section. |
+| `span` | `3`, `4`, `6`, `8`, `12` | Width on a 12-column grid. Default `6`. Ignored on `section` (always full width). |
 | `aggregate` | `count` (default), `count_distinct`, `sum`, `avg`, `min`, `max` | `count` needs no `column`. `count_distinct` accepts any filterable column. |
 | `column` | numeric or filterable field | Required for every aggregate except `count`. Ids, `*_id` and relations are refused for numeric aggregates. |
 | `format` | `number` (default), `money` | `money` only applies with `currency()` set and a numeric aggregate (`sum`, `avg`, `min`, `max`). |
 | `chart` | `bar` (default), `line`, `pie`, `doughnut` | Charts only. |
-| `group_by` | `@hour`, `@day`, `@month`, `@year`, or a field | Time buckets need `date_column`. A field gives top N, sized by `limit` (1 to 50, default 10). Dates, text, JSON, binary and decimal fields are not groupable. |
+| `group_by` | `@hour`, `@day`, `@month`, `@year`, or a field | Used by `chart` and `table`. Time buckets need `date_column`. A field gives top N, sized by `limit` (1 to 50, default 10). Dates, text, JSON, binary and decimal fields are not groupable. |
 | `date_column` | date or datetime field | Needed for `range` and time buckets. |
 | `range` | `today`, `7`, `30`, `90`, `365`, `this_week`, `this_month`, `this_year`, or absent | Rolling days or calendar period against `date_column`. Absent means all time. |
-| `color` | `primary`, `info`, `success`, `warning`, `danger`, `gray` | Optional accent color for stats and bar/line charts. |
-| `icon` | Heroicon name from `InsightStat::ICONS` | Optional icon for stat cards. |
+| `color` | `primary`, `info`, `success`, `warning`, `danger`, `gray` | Optional accent color for stats, bar/line charts, tables, and sections. |
+| `icon` | Heroicon name from `InsightStat::ICONS` | Optional icon for stat cards and sections. |
+| `collapsible` | boolean | Sections only. Allows viewers to collapse/expand the widgets under this section. |
+| `collapsed` | boolean | Sections only (when `collapsible` is true). Starts the section collapsed by default. |
+| `show_total` | boolean | Tables only (default `true`). Shows or hides the summary `Total` footer row for `count` and `sum` tables. |
 | `filters` | list of `{column, operator, value?}` | Optional per-widget conditions (`equals`, `not_equals`, `in`, `not_in`, `contains`, `gt`, `gte`, `lt`, `lte`, `is_null`, `is_not_null`). All columns are allowlisted and checked against `$excludedColumns`. |
 
 Stats also show change against the previous period and a sparkline when `range` is set.

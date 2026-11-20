@@ -3,6 +3,7 @@
 use CarlJanzell\FilamentInsights\Tests\Fixtures\Filament\OrderResource;
 use CarlJanzell\FilamentInsights\Widgets\InsightChart;
 use CarlJanzell\FilamentInsights\Widgets\InsightStat;
+use CarlJanzell\FilamentInsights\Widgets\InsightTable;
 use Filament\Support\RawJs;
 use Illuminate\Support\Number;
 use Livewire\Livewire;
@@ -114,4 +115,74 @@ it('applies accent colors and filters on charts', function () {
         ->and($data['datasets'][0]['data'])->toBe([100.0])
         ->and($data['datasets'][0]['borderColor'])->toBe('#ef4444')
         ->and($chart->getDescription())->toBe('Approved only · All time · Status is Paid');
+});
+
+it('renders a grouped summary table with ranks, shares, currency, filters and totals', function () {
+    order(['status' => 'paid', 'total' => 300]);
+    order(['status' => 'paid', 'total' => 100]);
+    order(['status' => 'pending', 'total' => 100]);
+
+    Livewire::test(InsightTable::class, [
+        'config' => [
+            'label' => 'Revenue by Status',
+            'description' => 'Active orders',
+            'aggregate' => 'sum',
+            'column' => 'total',
+            'format' => 'money',
+            'group_by' => 'status',
+            'color' => 'success',
+        ],
+        'resource' => OrderResource::class,
+    ])
+        ->assertSee('Revenue by Status')
+        ->assertSee('Active orders · All time')
+        ->assertSee('Paid')
+        ->assertSee('Pending')
+        ->assertSee(Number::currency(400, 'PHP'))
+        ->assertSee(Number::currency(100, 'PHP'))
+        ->assertSee('80.0%')
+        ->assertSee('20.0%')
+        ->assertSee('Total')
+        ->assertSee(Number::currency(500, 'PHP'));
+
+    Livewire::test(InsightTable::class, [
+        'config' => [
+            'label' => 'Status Summary',
+            'aggregate' => 'count',
+            'group_by' => 'status',
+            'show_total' => false,
+        ],
+        'resource' => OrderResource::class,
+    ])
+        ->assertSee('Paid')
+        ->assertSee('Pending')
+        ->assertDontSee('<tfoot>', escape: false);
+});
+
+it('renders a timeline table and an empty state when no records match', function () {
+    $this->travelTo('2026-03-10 12:00');
+    order(['ordered_at' => '2026-03-10 09:00', 'status' => 'paid']);
+
+    $table = widget(InsightTable::class, [
+        'label' => 'Daily Orders',
+        'aggregate' => 'count',
+        'group_by' => '@day',
+        'date_column' => 'ordered_at',
+        'range' => 7,
+    ]);
+
+    $data = invoke($table, 'getTableData');
+    expect($data['showRank'])->toBeFalse()
+        ->and($data['groupHeader'])->toBe('Day')
+        ->and($data['rows'])->toHaveCount(7);
+
+    Livewire::test(InsightTable::class, [
+        'config' => [
+            'label' => 'Pending Only',
+            'aggregate' => 'count',
+            'group_by' => 'status',
+            'filters' => [['column' => 'status', 'operator' => 'equals', 'value' => 'pending']],
+        ],
+        'resource' => OrderResource::class,
+    ])->assertSee('No matching records');
 });
