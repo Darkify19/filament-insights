@@ -4,6 +4,7 @@ namespace CarlJanzell\FilamentInsights;
 
 use CarlJanzell\FilamentInsights\Widgets\InsightChart;
 use CarlJanzell\FilamentInsights\Widgets\InsightStat;
+use CarlJanzell\FilamentInsights\Widgets\InsightTable;
 use Filament\Support\Assets\Js;
 use Filament\Support\Facades\FilamentAsset;
 use Illuminate\Support\ServiceProvider;
@@ -29,5 +30,6 @@ class InsightsServiceProvider extends ServiceProvider
         // unless it is registered; Livewire 4 doesn't need it but accepts it.
         Livewire::component(InsightChart::class);
         Livewire::component(InsightStat::class);
+        Livewire::component(InsightTable::class);
     }
 }
